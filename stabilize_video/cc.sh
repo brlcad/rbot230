@@ -1,0 +1,1 @@
+/usr/bin/g++ -std=c++11 capture.cpp -I /usr/local/include -I /usr/local/include/opencv4 -L /usr/local/lib -lrealsense2 -lopencv_highgui -lopencv_imgproc -lopencv_ximgproc -lopencv_features2d -lopencv_calib3d -lopencv_core -Wl,-rpath -Wl,/usr/local/lib
