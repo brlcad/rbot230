@@ -26,17 +26,31 @@ int main(int ac, char *av[]) {
   const char *maskGRAY = "Mask";
   const char *outputRGB = "Output";
 
+  cv::Ptr<cv::BackgroundSubtractor> BS = cv::createBackgroundSubtractorKNN(100,
+ 50, false);
+
   rs2::pipeline pipe;
   pipe.start();
 
   cv::Mat src;
+  cv::Mat mask;
+  cv::Mat prev;
 
   while (k != 'q' && k != 27) {
     fflush(stdout);
     rs_read(pipe, src);
+    // std::cout << "Width : " << src.size().width << std::endl;
+    // std::cout << "Height: " << src.size().height << std::endl;
+
+    /* do fun stuff */
+    BS->apply(src, mask);
 
     cv::imshow(sourceRGB, src);
+    cv::imshow(maskGRAY, mask);
+    cv::moveWindow(maskGRAY, 640, 0);
+
     k = cv::waitKey(200);
+    prev = src;
   }
 
   cv::destroyWindow(sourceRGB);
