@@ -23,17 +23,23 @@ int main(int ac, char *av[]) {
   int k = 0;
 
   const char *sourceRGB = "Source";
-  const char *maskGRAY = "Mask";
-  const char *outputRGB = "Output";
+  const char *maskKNN = "KNN Mask";
+  const char *maskMOG = "MOG2 Mask";
+  const char *outputKNN = "KNN Output";
+  const char *outputMOG = "MOG Output";
 
-  cv::Ptr<cv::BackgroundSubtractor> BS = cv::createBackgroundSubtractorKNN(100,
- 50, false);
+  int history = 5;
+  double thresh = 400;
+  bool shadows = false;
+  cv::Ptr<cv::BackgroundSubtractor> KNN = cv::createBackgroundSubtractorKNN(history, thresh, shadows);
+  cv::Ptr<cv::BackgroundSubtractor> MOG = cv::createBackgroundSubtractorMOG2(history, sqrt(thresh), shadows);
 
   rs2::pipeline pipe;
   pipe.start();
 
   cv::Mat src;
-  cv::Mat mask;
+  cv::Mat knnMask;
+  cv::Mat mogMask;
   cv::Mat prev;
 
   while (k != 'q' && k != 27) {
@@ -43,11 +49,29 @@ int main(int ac, char *av[]) {
     // std::cout << "Height: " << src.size().height << std::endl;
 
     /* do fun stuff */
-    BS->apply(src, mask);
+    KNN->apply(src, knnMask);
+    MOG->apply(src, mogMask);
 
+    /* reduce noise */
+    cv::erode(knnMask, knnMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
+    cv::dilate(knnMask, knnMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
+    cv::erode(mogMask, mogMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
+    cv::dilate(mogMask, mogMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
+
+    cv::Mat knnOut, mogOut;
+    cv::bitwise_and(src, src, knnOut, knnMask);
+    cv::bitwise_and(src, src, mogOut, mogMask);
+
+    /* display */
     cv::imshow(sourceRGB, src);
-    cv::imshow(maskGRAY, mask);
-    cv::moveWindow(maskGRAY, 640, 0);
+    cv::imshow(maskKNN, knnMask);
+    cv::imshow(maskMOG, mogMask);
+    cv::imshow(outputKNN, knnOut);
+    cv::imshow(outputMOG, mogOut);
+    cv::moveWindow(maskKNN, 640, 0);
+    cv::moveWindow(maskMOG, 1280, 0);
+    cv::moveWindow(outputKNN, 640, 505);
+    cv::moveWindow(outputMOG, 1280, 505);
 
     k = cv::waitKey(200);
     prev = src;
