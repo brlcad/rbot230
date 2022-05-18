@@ -1,4 +1,5 @@
 #include <iostream>
+
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
@@ -28,11 +29,11 @@ int main(int ac, char *av[]) {
   const char *outputKNN = "KNN Output";
   const char *outputMOG = "MOG Output";
 
-  int history = 5;
+  int history = 100;
   double thresh = 400;
-  bool shadows = false;
+  bool shadows = true;
   cv::Ptr<cv::BackgroundSubtractor> KNN = cv::createBackgroundSubtractorKNN(history, thresh, shadows);
-  cv::Ptr<cv::BackgroundSubtractor> MOG = cv::createBackgroundSubtractorMOG2(history, sqrt(thresh), shadows);
+  cv::Ptr<cv::BackgroundSubtractor> MOG = cv::createBackgroundSubtractorMOG2(history, sqrt(thresh)/4.0, shadows);
 
   rs2::pipeline pipe;
   pipe.start();
@@ -52,25 +53,61 @@ int main(int ac, char *av[]) {
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
 
+    /* apply some thresholding */
+    cv::threshold(knnMask, knnMask, 200, 255, cv::THRESH_BINARY);
+    cv::threshold(mogMask, mogMask, 200, 255, cv::THRESH_BINARY);
+
     /* reduce noise */
     cv::erode(knnMask, knnMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
     cv::dilate(knnMask, knnMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
     cv::erode(mogMask, mogMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
     cv::dilate(mogMask, mogMask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3,3)));
 
+    std::vector<std::vector<cv::Point> > knnContours;
+    std::vector<cv::Vec4i> knnHierarchy;
+    cv::findContours(knnMask, knnContours, knnHierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+
+    std::vector<std::vector<cv::Point> > knnContoursPoly( knnContours.size() );
+    std::vector<cv::Rect> knnBoundRect( knnContours.size() );
+
+    //    std::cout << "contours found: " << knnContours.size() << std::endl;
+
+    cv::Mat out = src;
+    for (size_t i = 0; i < knnContours.size(); i++) {
+      if (cv::contourArea(knnContours[i]) > 100) {
+        // std::cout << "displaying contour " << i << " with size " << cv::contourArea(knnContours[i]) << std::endl;
+        cv::approxPolyDP(knnContours[i], knnContoursPoly[i], 3, true);
+        knnBoundRect[i] = cv::boundingRect(knnContours[i]);
+        cv::drawContours(out, knnContoursPoly, (int)i, cv::Scalar(255,0,0), 2);
+        cv::rectangle(out, knnBoundRect[i].tl(), knnBoundRect[i].br(), cv::Scalar(0,0,255), 2);
+      }
+    }
+
+    /* get the masked rgb */
     cv::Mat knnOut, mogOut;
     cv::bitwise_and(src, src, knnOut, knnMask);
     cv::bitwise_and(src, src, mogOut, mogMask);
 
+    //    std::vector<std::vector<cv::Point> > mogContoursPoly( mogContours.size() );
+    //    std::vector<Rect> mogBoundRect( mogContours.size() );
+
+#if 0
+    /* convert mask back to color */
+    cv::cvtColor(knnMask, knnMask, cv::COLOR_GRAY2BGR);
+    cv::cvtColor(mogMask, knnMask, cv::COLOR_GRAY2BGR);
+#endif
+
     /* display */
     cv::imshow(sourceRGB, src);
+    cv::imshow("Output", out);
+    cv::moveWindow("Output", 0, 505);
     cv::imshow(maskKNN, knnMask);
-    cv::imshow(maskMOG, mogMask);
-    cv::imshow(outputKNN, knnOut);
-    cv::imshow(outputMOG, mogOut);
     cv::moveWindow(maskKNN, 640, 0);
+    cv::imshow(maskMOG, mogMask);
     cv::moveWindow(maskMOG, 1280, 0);
+    cv::imshow(outputKNN, knnOut);
     cv::moveWindow(outputKNN, 640, 505);
+    cv::imshow(outputMOG, mogOut);
     cv::moveWindow(outputMOG, 1280, 505);
 
     k = cv::waitKey(200);
