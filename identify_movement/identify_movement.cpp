@@ -9,8 +9,80 @@
 #include <librealsense2/rs.hpp>
 
 
-static int rs_read(rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
+static float get_depth_scale(rs2::device dev)
+{
+  // Go over the device's sensors
+  for (rs2::sensor& sensor : dev.query_sensors())
+  {
+    // Check if the sensor if a depth sensor
+    if (rs2::depth_sensor dpt = rs2::depth_sensor(sensor))
+    {
+      return dpt.get_depth_scale();
+    }
+  }
+  throw std::runtime_error("Device does not have a depth sensor");
+}
+
+static rs2_stream find_stream_to_align(const std::vector<rs2::stream_profile>& streams)
+{
+  //Given a vector of streams, we try to find a depth stream and another stream to align depth with.
+  //We prioritize color streams to make the view look better.
+  //If color is not available, we take another stream that (other than depth)
+  rs2_stream align_to = RS2_STREAM_ANY;
+  bool depth_stream_found = false;
+  bool color_stream_found = false;
+
+  for (rs2::stream_profile sp : streams)
+  {
+    rs2_stream profile_stream = sp.stream_type();
+    if (profile_stream != RS2_STREAM_DEPTH)
+    {
+      if (!color_stream_found) //Prefer color
+      align_to = profile_stream;
+
+  		if (profile_stream == RS2_STREAM_COLOR)
+  		{
+  			color_stream_found = true;
+  		}
+    }
+  	else
+  	{
+  		depth_stream_found = true;
+  	}
+  }
+
+  if (!depth_stream_found)
+  	throw std::runtime_error("No Depth stream available");
+
+  if (align_to == RS2_STREAM_ANY)
+  	throw std::runtime_error("No stream found to align with Depth");
+
+  return align_to;
+}
+
+
+bool profile_changed(const std::vector<rs2::stream_profile>& current, const std::vector<rs2::stream_profile>& prev)
+{
+  for(auto&& sp : prev)
+  {
+    //If previous profile is in current (maybe just added another)
+    auto itr = std::find_if(std::begin(current), std::end(current), [&sp](const rs2::stream_profile& current_sp) { return sp.unique_id() == current_sp.unique_id(); });
+    if (itr == std::end(current)) //If it previous stream wasn't found in current
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
     rs2::frameset frames = p.wait_for_frames();
+
+    rs2_stream align_to = find_stream_to_align(profile.get_streams());
+    rs2::align align(align_to);
+    auto processed = align.process(frames);
+
     rs2::frame color = frames.get_color_frame();
     const int w = color.as<rs2::video_frame>().get_width();
     const int h = color.as<rs2::video_frame>().get_height();
@@ -55,12 +127,26 @@ int main(int ac, char *av[]) {
   cv::Ptr<cv::BackgroundSubtractor> KNN = cv::createBackgroundSubtractorKNN(history, thresh, shadows);
   cv::Ptr<cv::BackgroundSubtractor> MOG = cv::createBackgroundSubtractorMOG2(history, sqrt(thresh)/4.0, shadows);
 
-  /* read our realsense data */
   cv::Mat initial;
   cv::Mat dsrc = cv::Mat::zeros(initial.size(), CV_8UC1);
   rs2::pipeline pipe;
-  pipe.start();
-  rs_read(pipe, initial, dsrc);
+
+  rs2::config cfg;
+  cfg.enable_stream(rs2_stream::RS2_STREAM_DEPTH, 1280, 720, rs2_format::RS2_FORMAT_Z16);
+  //change the color format to BGR8 for opencv
+  cfg.enable_stream(rs2_stream::RS2_STREAM_COLOR, 1280, 720, rs2_format::RS2_FORMAT_RGB8);
+
+  
+  rs2::pipeline_profile profile = pipe.start(cfg);
+
+  /* get units for depth pixels */
+  float depth_scale = get_depth_scale(profile.get_device());
+  rs2_stream align_to = find_stream_to_align(profile.get_streams());
+  rs2::align align(align_to);
+  float depth_clipping_distance = 10000.f;
+
+  /* actually read our realsense data */
+  rs_read(profile, pipe, initial, dsrc);
 
   cv::Mat src = cv::Mat::zeros(initial.size(), CV_8UC3);
   cv::Mat out = cv::Mat::zeros(initial.size(), CV_8UC3);
@@ -70,7 +156,6 @@ int main(int ac, char *av[]) {
   cv::Mat mogOut = cv::Mat::zeros(initial.size(), CV_8UC3);
 
   initial = cv::Mat::zeros(initial.size(), CV_8UC3);
-
 
   /* initialize window positions */
   cv::imshow(sourceRGB, src);
@@ -90,11 +175,20 @@ int main(int ac, char *av[]) {
 
   while (k != 'q' && k != 27) {
     fflush(stdout);
-    rs_read(pipe, src, dsrc);
+    rs_read(profile, pipe, src, dsrc);
     // std::cout << "Width : " << src.size().width << std::endl;
     // std::cout << "Height: " << src.size().height << std::endl;
 
-    /* do fun stuff */
+    /* check if realsense config changed */
+    if (profile_changed(pipe.get_active_profile().get_streams(), profile.get_streams())) {
+      // if profile changed, update align object and get new depth scale
+      profile = pipe.get_active_profile();
+      align_to = find_stream_to_align(profile.get_streams());
+      align = rs2::align(align_to);
+      depth_scale = get_depth_scale(profile.get_device());
+    }
+
+  /* do fun stuff */
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
 
