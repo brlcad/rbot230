@@ -9,13 +9,23 @@
 #include <librealsense2/rs.hpp>
 
 
-static int rs_read(rs2::pipeline p, cv::Mat& img) {
+static int rs_read(rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
     rs2::frameset frames = p.wait_for_frames();
     rs2::frame color = frames.get_color_frame();
     const int w = color.as<rs2::video_frame>().get_width();
     const int h = color.as<rs2::video_frame>().get_height();
     cv::Mat nimg(cv::Size(w, h), CV_8UC3, (void*)color.get_data(), cv::Mat::AUTO_STEP);
     cv::cvtColor(nimg, img, cv::COLOR_BGR2RGB);
+
+    rs2::frame depth = frames.get_depth_frame();
+    const int dw = depth.as<rs2::video_frame>().get_width();
+    const int dh = depth.as<rs2::video_frame>().get_height();
+
+    cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
+    cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
+    ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
+    dimg = ndimg;
+
     return 1;
 }
 
@@ -37,6 +47,7 @@ int main(int ac, char *av[]) {
   const char *maskMOG = "MOG2 Mask";
   const char *outputKNN = "KNN Output";
   const char *outputMOG = "MOG Output";
+  const char *sourceDST = "Depth";
 
   int history = 100;
   double thresh = 400;
@@ -44,11 +55,12 @@ int main(int ac, char *av[]) {
   cv::Ptr<cv::BackgroundSubtractor> KNN = cv::createBackgroundSubtractorKNN(history, thresh, shadows);
   cv::Ptr<cv::BackgroundSubtractor> MOG = cv::createBackgroundSubtractorMOG2(history, sqrt(thresh)/4.0, shadows);
 
+  /* read our realsense data */
+  cv::Mat initial;
+  cv::Mat dsrc = cv::Mat::zeros(initial.size(), CV_8UC1);
   rs2::pipeline pipe;
   pipe.start();
-
-  cv::Mat initial;
-  rs_read(pipe, initial);
+  rs_read(pipe, initial, dsrc);
 
   cv::Mat src = cv::Mat::zeros(initial.size(), CV_8UC3);
   cv::Mat out = cv::Mat::zeros(initial.size(), CV_8UC3);
@@ -56,7 +68,9 @@ int main(int ac, char *av[]) {
   cv::Mat mogMask = cv::Mat::zeros(initial.size(), CV_8UC1);
   cv::Mat knnOut = cv::Mat::zeros(initial.size(), CV_8UC3);
   cv::Mat mogOut = cv::Mat::zeros(initial.size(), CV_8UC3);
+
   initial = cv::Mat::zeros(initial.size(), CV_8UC3);
+
 
   /* initialize window positions */
   cv::imshow(sourceRGB, src);
@@ -71,10 +85,12 @@ int main(int ac, char *av[]) {
   cv::moveWindow(outputKNN, 640, 505);
   cv::imshow(outputMOG, mogOut);
   cv::moveWindow(outputMOG, 1280, 505);
+  cv::imshow(sourceDST, dsrc);
+  cv::moveWindow(sourceDST, 0, 1010);
 
   while (k != 'q' && k != 27) {
     fflush(stdout);
-    rs_read(pipe, src);
+    rs_read(pipe, src, dsrc);
     // std::cout << "Width : " << src.size().width << std::endl;
     // std::cout << "Height: " << src.size().height << std::endl;
 
@@ -140,17 +156,12 @@ int main(int ac, char *av[]) {
 
     /* display */
     cv::imshow(sourceRGB, src);
-    cv::moveWindow(outputRGB, 0, 0);
     cv::imshow(outputRGB, out);
-    cv::moveWindow(outputRGB, 0, 505);
     cv::imshow(maskKNN, knnMask);
-    cv::moveWindow(maskKNN, 640, 0);
     cv::imshow(maskMOG, mogMask);
-    cv::moveWindow(maskMOG, 1280, 0);
     cv::imshow(outputKNN, knnOut);
-    cv::moveWindow(outputKNN, 640, 505);
     cv::imshow(outputMOG, mogOut);
-    cv::moveWindow(outputMOG, 1280, 505);
+    cv::imshow(sourceDST, dsrc);
 
     k = cv::waitKey(200);
   }
