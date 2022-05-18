@@ -98,7 +98,7 @@ int main(int ac, char *av[]) {
     // std::cout << "contours found: " << knnContours.size() << std::endl;
 
     /* reset output buffers */
-    initial.copyTo(out);
+    src.copyTo(out);
     initial.copyTo(knnOut);
     initial.copyTo(mogOut);
 
