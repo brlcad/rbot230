@@ -76,6 +76,38 @@ bool profile_changed(const std::vector<rs2::stream_profile>& current, const std:
 }
 
 
+static void remove_background(rs2::video_frame& other_frame, const rs2::depth_frame& depth_frame, float depth_scale, float clipping_dist)
+{
+  const uint16_t* p_depth_frame = reinterpret_cast<const uint16_t*>(depth_frame.get_data());
+  uint8_t* p_other_frame = reinterpret_cast<uint8_t*>(const_cast<void*>(other_frame.get_data()));
+
+  int width = other_frame.get_width();
+  int height = other_frame.get_height();
+  int other_bpp = other_frame.get_bytes_per_pixel();
+
+  //#pragma omp parallel for schedule(dynamic) //Using OpenMP to try to parallelise the loop
+  for (int y = 0; y < height; y++)
+  {
+    auto depth_pixel_index = y * width;
+    for (int x = 0; x < width; x++, ++depth_pixel_index)
+    {
+      // Get the depth value of the current pixel
+      auto pixels_distance = depth_scale * p_depth_frame[depth_pixel_index];
+
+  		// Check if the depth value is invalid (<=0) or greater than the threashold
+  		if (pixels_distance <= 0.f || pixels_distance > clipping_dist)
+  		{
+  			// Calculate the offset in other frame's buffer to current pixel
+  			auto offset = depth_pixel_index * other_bpp;
+
+  			// Set pixel to "background" color (0x999999)
+  			std::memset(&p_other_frame[offset], 0x01, other_bpp);
+  		}
+    }
+  }
+}
+
+
 static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
     rs2::frameset frames = p.wait_for_frames();
 
@@ -89,7 +121,29 @@ static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img,
     cv::Mat nimg(cv::Size(w, h), CV_8UC3, (void*)color.get_data(), cv::Mat::AUTO_STEP);
     cv::cvtColor(nimg, img, cv::COLOR_BGR2RGB);
 
-    rs2::frame depth = frames.get_depth_frame();
+    rs2::video_frame other_frame = processed.first(align_to);
+
+    rs2::depth_frame aligned_depth_frame = processed.get_depth_frame();
+
+    rs2::frame depth;
+    if (!aligned_depth_frame || !other_frame)
+      depth = frames.get_depth_frame();
+
+    float depth_clipping_distance = 10000.f;
+    float depth_scale = get_depth_scale(profile.get_device());
+    remove_background(other_frame, aligned_depth_frame, depth_scale, depth_clipping_distance);
+
+    const int w_other = other_frame.get_width();
+    const int h_other = other_frame.get_height();
+
+    //    rs2::colorizer c;
+    //    rs2::video_frame depth_color=c.process(aligned_depth_frame);
+
+    //    const int w_depth = depth_color.get_width();
+    //    const int h_depth = depth_color.get_height();
+
+    depth = aligned_depth_frame;
+
     const int dw = depth.as<rs2::video_frame>().get_width();
     const int dh = depth.as<rs2::video_frame>().get_height();
 
@@ -97,6 +151,15 @@ static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img,
     cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
     ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
     dimg = ndimg;
+
+    /* check if realsense config changed */
+    if (profile_changed(p.get_active_profile().get_streams(), profile.get_streams())) {
+      // if profile changed, update align object and get new depth scale
+      profile = p.get_active_profile();
+      align_to = find_stream_to_align(profile.get_streams());
+      align = rs2::align(align_to);
+      depth_scale = get_depth_scale(profile.get_device());
+    }
 
     return 1;
 }
@@ -136,14 +199,11 @@ int main(int ac, char *av[]) {
   //change the color format to BGR8 for opencv
   cfg.enable_stream(rs2_stream::RS2_STREAM_COLOR, 1280, 720, rs2_format::RS2_FORMAT_RGB8);
 
-  
   rs2::pipeline_profile profile = pipe.start(cfg);
 
   /* get units for depth pixels */
-  float depth_scale = get_depth_scale(profile.get_device());
   rs2_stream align_to = find_stream_to_align(profile.get_streams());
   rs2::align align(align_to);
-  float depth_clipping_distance = 10000.f;
 
   /* actually read our realsense data */
   rs_read(profile, pipe, initial, dsrc);
@@ -179,16 +239,7 @@ int main(int ac, char *av[]) {
     // std::cout << "Width : " << src.size().width << std::endl;
     // std::cout << "Height: " << src.size().height << std::endl;
 
-    /* check if realsense config changed */
-    if (profile_changed(pipe.get_active_profile().get_streams(), profile.get_streams())) {
-      // if profile changed, update align object and get new depth scale
-      profile = pipe.get_active_profile();
-      align_to = find_stream_to_align(profile.get_streams());
-      align = rs2::align(align_to);
-      depth_scale = get_depth_scale(profile.get_device());
-    }
-
-  /* do fun stuff */
+    /* do fun stuff */
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
 
