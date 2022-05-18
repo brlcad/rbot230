@@ -136,18 +136,21 @@ static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img,
   const int w_other = other_frame.get_width();
   const int h_other = other_frame.get_height();
 
+  /* FIXME: colorizing isn't working.. can't figure out the data encoding */
   //  rs2::colorizer c;
   //  rs2::video_frame depth_color=c.process(aligned_depth_frame);
+  // const int w_depth = depth_color.get_width();
+  // const int h_depth = depth_color.get_height();
 
-  //    const int w_depth = depth_color.get_width();
-  //    const int h_depth = depth_color.get_height();
-
+  //rs2::frame depth2 = depth_color;
+  // depth = depth_color;
   depth = aligned_depth_frame;
   const int dw = depth.as<rs2::video_frame>().get_width();
   const int dh = depth.as<rs2::video_frame>().get_height();
 
-  //cv::Mat ndimg(cv::Size(dw, dh), CV_8UC3, (void*)depth_color.get_data(), cv::Mat::AUTO_STEP);
+  //  cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth2.get_data(), cv::Mat::AUTO_STEP);
   cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
+  //cv::Mat ndimg(cv::Size(dw, dh), CV_8UC3, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
 
   cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
   ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
