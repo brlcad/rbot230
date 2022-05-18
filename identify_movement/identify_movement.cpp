@@ -20,10 +20,19 @@ static int rs_read(rs2::pipeline p, cv::Mat& img) {
 }
 
 
+static bool
+cmpContourAreas(std::vector<cv::Point> c1, std::vector<cv::Point> c2 ) {
+    double i = fabs(contourArea(cv::Mat(c1)));
+    double j = fabs(contourArea(cv::Mat(c2)));
+    return (i > j);
+}
+
+
 int main(int ac, char *av[]) {
   int k = 0;
 
   const char *sourceRGB = "Source";
+  const char *outputRGB = "Output";
   const char *maskKNN = "KNN Mask";
   const char *maskMOG = "MOG2 Mask";
   const char *outputKNN = "KNN Output";
@@ -38,10 +47,29 @@ int main(int ac, char *av[]) {
   rs2::pipeline pipe;
   pipe.start();
 
-  cv::Mat src;
-  cv::Mat knnMask;
-  cv::Mat mogMask;
-  cv::Mat prev;
+  cv::Mat initial;
+  rs_read(pipe, initial);
+
+  cv::Mat src = cv::Mat::zeros(initial.size(), CV_8UC3);
+  cv::Mat out = cv::Mat::zeros(initial.size(), CV_8UC3);
+  cv::Mat knnMask = cv::Mat::zeros(initial.size(), CV_8UC1);
+  cv::Mat mogMask = cv::Mat::zeros(initial.size(), CV_8UC1);
+  cv::Mat knnOut = cv::Mat::zeros(initial.size(), CV_8UC3);
+  cv::Mat mogOut = cv::Mat::zeros(initial.size(), CV_8UC3);
+
+  /* initialize window positions */
+  cv::imshow(sourceRGB, src);
+  cv::moveWindow(outputRGB, 0, 0);
+  cv::imshow(outputRGB, out);
+  cv::moveWindow(outputRGB, 0, 505);
+  cv::imshow(maskKNN, knnMask);
+  cv::moveWindow(maskKNN, 640, 0);
+  cv::imshow(maskMOG, mogMask);
+  cv::moveWindow(maskMOG, 1280, 0);
+  cv::imshow(outputKNN, knnOut);
+  cv::moveWindow(outputKNN, 640, 505);
+  cv::imshow(outputMOG, mogOut);
+  cv::moveWindow(outputMOG, 1280, 505);
 
   while (k != 'q' && k != 27) {
     fflush(stdout);
@@ -66,25 +94,33 @@ int main(int ac, char *av[]) {
     std::vector<std::vector<cv::Point> > knnContours;
     std::vector<cv::Vec4i> knnHierarchy;
     cv::findContours(knnMask, knnContours, knnHierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
+    // std::cout << "contours found: " << knnContours.size() << std::endl;
 
-    std::vector<std::vector<cv::Point> > knnContoursPoly( knnContours.size() );
+
+    /* sort by area */
+    std::sort(knnContours.begin(), knnContours.end(), cmpContourAreas);
+
+     /* Don't consider anything less than 10px^2 or bigger than a 1/3
+      * of the view.
+      */
+    double minArea = 100.0;
+    double maxArea = src.size().width * src.size().height / 3.0;
     std::vector<cv::Rect> knnBoundRect( knnContours.size() );
+    std::vector<std::vector<cv::Point> > knnContoursPoly( knnContours.size() );
 
-    //    std::cout << "contours found: " << knnContours.size() << std::endl;
-
-    cv::Mat out = src;
     for (size_t i = 0; i < knnContours.size(); i++) {
-      if (cv::contourArea(knnContours[i]) > 100) {
+      if (cv::contourArea(knnContours[i]) > minArea && cv::contourArea(knnContours[i]) < maxArea) {
         // std::cout << "displaying contour " << i << " with size " << cv::contourArea(knnContours[i]) << std::endl;
         cv::approxPolyDP(knnContours[i], knnContoursPoly[i], 3, true);
         knnBoundRect[i] = cv::boundingRect(knnContours[i]);
         cv::drawContours(out, knnContoursPoly, (int)i, cv::Scalar(255,0,0), 2);
         cv::rectangle(out, knnBoundRect[i].tl(), knnBoundRect[i].br(), cv::Scalar(0,0,255), 2);
+        if (i > 3)
+          break;
       }
     }
 
     /* get the masked rgb */
-    cv::Mat knnOut, mogOut;
     cv::bitwise_and(src, src, knnOut, knnMask);
     cv::bitwise_and(src, src, mogOut, mogMask);
 
@@ -99,8 +135,9 @@ int main(int ac, char *av[]) {
 
     /* display */
     cv::imshow(sourceRGB, src);
-    cv::imshow("Output", out);
-    cv::moveWindow("Output", 0, 505);
+    cv::moveWindow(outputRGB, 0, 0);
+    cv::imshow(outputRGB, out);
+    cv::moveWindow(outputRGB, 0, 505);
     cv::imshow(maskKNN, knnMask);
     cv::moveWindow(maskKNN, 640, 0);
     cv::imshow(maskMOG, mogMask);
@@ -111,7 +148,6 @@ int main(int ac, char *av[]) {
     cv::moveWindow(outputMOG, 1280, 505);
 
     k = cv::waitKey(200);
-    prev = src;
   }
 
   cv::destroyWindow(sourceRGB);
