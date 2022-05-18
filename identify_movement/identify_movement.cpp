@@ -109,59 +109,60 @@ static void remove_background(rs2::video_frame& other_frame, const rs2::depth_fr
 
 
 static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
-    rs2::frameset frames = p.wait_for_frames();
+  rs2::frameset frames = p.wait_for_frames();
 
-    rs2_stream align_to = find_stream_to_align(profile.get_streams());
-    rs2::align align(align_to);
-    auto processed = align.process(frames);
+  rs2_stream align_to = find_stream_to_align(profile.get_streams());
+  rs2::align align(align_to);
+  auto processed = align.process(frames);
 
-    rs2::frame color = frames.get_color_frame();
-    const int w = color.as<rs2::video_frame>().get_width();
-    const int h = color.as<rs2::video_frame>().get_height();
-    cv::Mat nimg(cv::Size(w, h), CV_8UC3, (void*)color.get_data(), cv::Mat::AUTO_STEP);
-    cv::cvtColor(nimg, img, cv::COLOR_BGR2RGB);
+  rs2::frame color = frames.get_color_frame();
+  const int w = color.as<rs2::video_frame>().get_width();
+  const int h = color.as<rs2::video_frame>().get_height();
+  cv::Mat nimg(cv::Size(w, h), CV_8UC3, (void*)color.get_data(), cv::Mat::AUTO_STEP);
+  cv::cvtColor(nimg, img, cv::COLOR_BGR2RGB);
 
-    rs2::video_frame other_frame = processed.first(align_to);
+  rs2::video_frame other_frame = processed.first(align_to);
 
-    rs2::depth_frame aligned_depth_frame = processed.get_depth_frame();
+  rs2::depth_frame aligned_depth_frame = processed.get_depth_frame();
 
-    rs2::frame depth;
-    if (!aligned_depth_frame || !other_frame)
-      depth = frames.get_depth_frame();
+  rs2::frame depth;
+  if (!aligned_depth_frame || !other_frame)
+    depth = frames.get_depth_frame();
 
-    float depth_clipping_distance = 10000.f;
-    float depth_scale = get_depth_scale(profile.get_device());
-    remove_background(other_frame, aligned_depth_frame, depth_scale, depth_clipping_distance);
+  float depth_clipping_distance = 10000.f;
+  float depth_scale = get_depth_scale(profile.get_device());
+  remove_background(other_frame, aligned_depth_frame, depth_scale, depth_clipping_distance);
 
-    const int w_other = other_frame.get_width();
-    const int h_other = other_frame.get_height();
+  const int w_other = other_frame.get_width();
+  const int h_other = other_frame.get_height();
 
-    //    rs2::colorizer c;
-    //    rs2::video_frame depth_color=c.process(aligned_depth_frame);
+  //  rs2::colorizer c;
+  //  rs2::video_frame depth_color=c.process(aligned_depth_frame);
 
-    //    const int w_depth = depth_color.get_width();
-    //    const int h_depth = depth_color.get_height();
+  //    const int w_depth = depth_color.get_width();
+  //    const int h_depth = depth_color.get_height();
 
-    depth = aligned_depth_frame;
+  depth = aligned_depth_frame;
+  const int dw = depth.as<rs2::video_frame>().get_width();
+  const int dh = depth.as<rs2::video_frame>().get_height();
 
-    const int dw = depth.as<rs2::video_frame>().get_width();
-    const int dh = depth.as<rs2::video_frame>().get_height();
+  //cv::Mat ndimg(cv::Size(dw, dh), CV_8UC3, (void*)depth_color.get_data(), cv::Mat::AUTO_STEP);
+  cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
 
-    cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
-    cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
-    ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
-    dimg = ndimg;
+  cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
+  ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
+  dimg = ndimg;
 
-    /* check if realsense config changed */
-    if (profile_changed(p.get_active_profile().get_streams(), profile.get_streams())) {
-      // if profile changed, update align object and get new depth scale
-      profile = p.get_active_profile();
-      align_to = find_stream_to_align(profile.get_streams());
-      align = rs2::align(align_to);
-      depth_scale = get_depth_scale(profile.get_device());
-    }
+  /* check if realsense config changed */
+  if (profile_changed(p.get_active_profile().get_streams(), profile.get_streams())) {
+    // if profile changed, update align object and get new depth scale
+    profile = p.get_active_profile();
+    align_to = find_stream_to_align(profile.get_streams());
+    align = rs2::align(align_to);
+    depth_scale = get_depth_scale(profile.get_device());
+  }
 
-    return 1;
+  return 1;
 }
 
 
@@ -199,8 +200,11 @@ int main(int ac, char *av[]) {
     cfg.enable_stream(rs2_stream::RS2_STREAM_DEPTH, 1280, 720, rs2_format::RS2_FORMAT_Z16);
     cfg.enable_stream(rs2_stream::RS2_STREAM_COLOR, 1280, 720, rs2_format::RS2_FORMAT_RGB8);
   */
-    cfg.enable_stream(rs2_stream::RS2_STREAM_DEPTH, 640, 480, rs2_format::RS2_FORMAT_Z16);
-    cfg.enable_stream(rs2_stream::RS2_STREAM_COLOR, 640, 480, rs2_format::RS2_FORMAT_RGB8);
+  /* image dimensions */
+  int w = 640;
+  int n = 480;
+    cfg.enable_stream(rs2_stream::RS2_STREAM_DEPTH, w, n, rs2_format::RS2_FORMAT_Z16);
+    cfg.enable_stream(rs2_stream::RS2_STREAM_COLOR, w, n, rs2_format::RS2_FORMAT_RGB8);
 
   rs2::pipeline_profile profile = pipe.start(cfg);
 
@@ -224,17 +228,17 @@ int main(int ac, char *av[]) {
   cv::imshow(sourceRGB, src);
   cv::moveWindow(outputRGB, 0, 0);
   cv::imshow(outputRGB, out);
-  cv::moveWindow(outputRGB, 0, 505);
+  cv::moveWindow(outputRGB, 0, initial.size().height+25);
   cv::imshow(maskKNN, knnMask);
   cv::moveWindow(maskKNN, 640, 0);
   cv::imshow(maskMOG, mogMask);
   cv::moveWindow(maskMOG, 1280, 0);
   cv::imshow(outputKNN, knnOut);
-  cv::moveWindow(outputKNN, 640, 505);
+  cv::moveWindow(outputKNN, 640, initial.size().height+25);
   cv::imshow(outputMOG, mogOut);
-  cv::moveWindow(outputMOG, 1280, 505);
+  cv::moveWindow(outputMOG, 1280, initial.size().height+25);
   cv::imshow(sourceDST, dsrc);
-  cv::moveWindow(sourceDST, 0, 1010);
+  cv::moveWindow(sourceDST, 0, (initial.size().height+25)*2);
 
   while (k != 'q' && k != 27) {
     fflush(stdout);
