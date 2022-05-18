@@ -259,6 +259,12 @@ int main(int ac, char *av[]) {
     dsrc.setTo(cv::Scalar(255,255,255), dMask);
 
     bitwise_not(dsrc, dsrc);
+    //    cv::Point minloc;
+    //    cv::Point maxloc;
+    double minval;
+    double maxval;
+    cv::minMaxLoc(dsrc, &minval, &maxval, NULL /*minloc*/, NULL /*&maxloc */);
+    /* TODO: re-map intensities from 0 to 1 */
 
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
