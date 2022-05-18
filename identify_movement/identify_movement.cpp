@@ -56,6 +56,7 @@ int main(int ac, char *av[]) {
   cv::Mat mogMask = cv::Mat::zeros(initial.size(), CV_8UC1);
   cv::Mat knnOut = cv::Mat::zeros(initial.size(), CV_8UC3);
   cv::Mat mogOut = cv::Mat::zeros(initial.size(), CV_8UC3);
+  initial = cv::Mat::zeros(initial.size(), CV_8UC3);
 
   /* initialize window positions */
   cv::imshow(sourceRGB, src);
@@ -96,6 +97,10 @@ int main(int ac, char *av[]) {
     cv::findContours(knnMask, knnContours, knnHierarchy, cv::RETR_TREE, cv::CHAIN_APPROX_SIMPLE);
     // std::cout << "contours found: " << knnContours.size() << std::endl;
 
+    /* reset output buffers */
+    initial.copyTo(out);
+    initial.copyTo(knnOut);
+    initial.copyTo(mogOut);
 
     /* sort by area */
     std::sort(knnContours.begin(), knnContours.end(), cmpContourAreas);
