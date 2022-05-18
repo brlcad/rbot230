@@ -254,7 +254,12 @@ int main(int ac, char *av[]) {
     // std::cout << "Height: " << src.size().height << std::endl;
 
     /* do fun stuff */
-    
+    cv::Mat dMask;
+    cv::inRange(dsrc, cv::Scalar(0,0,0), cv::Scalar(0,0,0), dMask);
+    dsrc.setTo(cv::Scalar(255,255,255), dMask);
+
+    bitwise_not(dsrc, dsrc);
+
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
 
