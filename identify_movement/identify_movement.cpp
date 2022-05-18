@@ -107,8 +107,12 @@ static void remove_background(rs2::video_frame& other_frame, const rs2::depth_fr
   }
 }
 
+/* this cannot be constructed repeatedly without crashing */
+static rs2::colorizer c;
 
 static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img, cv::Mat &dimg) {
+  /* overarching toggle for color or grayscale depth buffer image */
+  bool show_color_depth = 0;
   rs2::frameset frames = p.wait_for_frames();
 
   rs2_stream align_to = find_stream_to_align(profile.get_streams());
@@ -136,24 +140,24 @@ static int rs_read(rs2::pipeline_profile profile, rs2::pipeline p, cv::Mat& img,
   const int w_other = other_frame.get_width();
   const int h_other = other_frame.get_height();
 
-  /* FIXME: colorizing isn't working.. can't figure out the data encoding */
-  //  rs2::colorizer c;
-  //  rs2::video_frame depth_color=c.process(aligned_depth_frame);
-  // const int w_depth = depth_color.get_width();
-  // const int h_depth = depth_color.get_height();
+  cv::Mat ndimg;
+  if (show_color_depth) {
+    rs2::video_frame depth_color=c.process(aligned_depth_frame);
+    const int w_depth = depth_color.get_width();
+    const int h_depth = depth_color.get_height();
+    depth = depth_color;
+    ndimg = cv::Mat(cv::Size(w_depth, h_depth), CV_8UC3, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
+  } else {
+    depth = aligned_depth_frame;
+    const int dw = depth.as<rs2::video_frame>().get_width();
+    const int dh = depth.as<rs2::video_frame>().get_height();
+    ndimg = cv::Mat(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
+    cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
+    ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
+  }
 
-  //rs2::frame depth2 = depth_color;
-  // depth = depth_color;
-  depth = aligned_depth_frame;
-  const int dw = depth.as<rs2::video_frame>().get_width();
-  const int dh = depth.as<rs2::video_frame>().get_height();
-
-  //  cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth2.get_data(), cv::Mat::AUTO_STEP);
-  cv::Mat ndimg(cv::Size(dw, dh), CV_16UC1, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
-  //cv::Mat ndimg(cv::Size(dw, dh), CV_8UC3, (void*)depth.get_data(), cv::Mat::AUTO_STEP);
-
-  cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
-  ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
+  //  cv::resize(ndimg, dimg, cv::Size(w, h), cv::INTER_LINEAR);
+  //  ndimg.convertTo(ndimg, CV_8UC1, 15 / 256.0);
   dimg = ndimg;
 
   /* check if realsense config changed */
@@ -250,6 +254,7 @@ int main(int ac, char *av[]) {
     // std::cout << "Height: " << src.size().height << std::endl;
 
     /* do fun stuff */
+    
     KNN->apply(src, knnMask);
     MOG->apply(src, mogMask);
 
