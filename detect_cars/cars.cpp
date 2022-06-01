@@ -105,8 +105,8 @@ int main(int ac, char *av[]) {
       float conf = detectionMat.at<float>(i, 2);
       //      std::cout << "conf=" << conf << std::endl;
 
-      if (class_names[id-1] != "car")
-        continue;
+      //      if (class_names[id-1] != "car")
+      //        continue;
 
       // Check if the detection is of decent quality
       if (conf > 0.3) {
