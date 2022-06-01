@@ -5,6 +5,20 @@
 #include <opencv2/dnn.hpp>
 #include <opencv2/dnn/all_layers.hpp>
 
+#include <librealsense2/rs.hpp>
+
+
+static int rs_read(rs2::pipeline p, cv::Mat& img) {
+    rs2::frameset frames = p.wait_for_frames();
+    rs2::frame color = frames.get_color_frame();
+    const int w = color.as<rs2::video_frame>().get_width();
+    const int h = color.as<rs2::video_frame>().get_height();
+    cv::Mat nimg(cv::Size(w, h), CV_8UC3, (void*)color.get_data(), cv::Mat::AUTO_STEP);
+    cv::cvtColor(nimg, img, cv::COLOR_BGR2RGB);
+    return 1;
+}
+
+
 
 int main(int ac, char *av[]) {
 
@@ -14,15 +28,15 @@ int main(int ac, char *av[]) {
   }
 
 #if 1
-  auto model = cv::dnn::readNet("frozen_inference_graph.pb",
-                                "ssd_mobilenet_v2_coco_2018_03_29.pbtxt",
+  auto model = cv::dnn::readNet("nets/mobilenet_v2_tensorflow/frozen_inference_graph.pb",
+                                "nets/mobilenet_v2_tensorflow/ssd_mobilenet_v2_coco_2018_03_29.pbtxt",
                                 "Tensorflow");
-  std::ifstream ifs("object_detection_classes_coco.txt");
+  std::ifstream ifs("nets/mobilenet_v2_tensorflow/object_detection_classes_coco.txt");
 #else
-  auto model = cv::dnn::readNet("mobilenet_v2_deploy.prototxt",
-                                "mobilenet_v2.caffemodel",
+  auto model = cv::dnn::readNet("nets/mobilenet_v2_caffe/mobilenet_v2_deploy.prototxt",
+                                "nets/mobilenet_v2_caffe/mobilenet_v2.caffemodel",
                                 "Caffe");
-  std::ifstream ifs("synset.txt");
+  std::ifstream ifs("nets/mobilenet_v2_caffe/synset.txt");
 #endif
 
   std::vector<std::string> class_names;
@@ -31,19 +45,47 @@ int main(int ac, char *av[]) {
     class_names.push_back(line);
   }
 
-  //  cv::Mat image = cv::imread("minivan.jpg");
-  cv::VideoCapture cap("videos/city/city.mp4");//test_video.mp4");
-  while (cap.isOpened()) {
+  typedef enum {
+    SRC_RS = 0,
+    SRC_IM = 1,
+    SRC_VC = 2
+  } source_t;
 
-    cv::Mat image;
-    bool success = cap.read(image);
-    if (!success)
+  /* three potential input sources */
+  source_t src = SRC_VC;
+  rs2::pipeline pipe;
+  cv::VideoCapture cap;
+  cv::Mat image;
+
+  if (std::string(av[1]) == "rs") {
+    std::cout << "Using RealSense sensor as input" << std::endl;
+    src = SRC_RS;
+    pipe.start();
+  } else {
+    std::cout << "Using [ " << av[1] << " ] as input" << std::endl;
+    src = SRC_VC;
+    int opened = cap.open(av[1]);
+    if (!opened) {
+      src = SRC_IM;
+      image = cv::imread(av[1]);
+    }
+  }
+
+  while (1) {
+    if (src == SRC_VC && !cap.isOpened())
       break;
+    if (src == SRC_RS)
+      rs_read(pipe, image);
+    if (src == SRC_VC) {
+      bool success = cap.read(image);
+      if (!success)
+        break;
+    }
 
-    cv::Mat blob = cv::dnn::blobFromImage(image, 1.0, cv::Size(300, 300), cv::Scalar(103.94, 116.78, 123.68), true, false);//, 0.017);//, cv::Size(224, 224));//, cv::Scalar(103.94, 116.78, 123.68));
+    cv::Mat blob = cv::dnn::blobFromImage(image, 1.0, cv::Size(300, 300), cv::Scalar(103.94, 116.78, 123.68), true, false);
+    //, 0.017);//, cv::Size(224, 224));//, cv::Scalar(103.94, 116.78, 123.68));
 
     cv::Point position;
-    double probability;
 
     model.setInput(blob);
     cv::Mat outputs = model.forward();
@@ -60,7 +102,7 @@ int main(int ac, char *av[]) {
       if (class_names[id-1] != "car")
         continue;
 
-      // Check if the detection is of good quality
+      // Check if the detection is of decent quality
       if (conf > 0.3) {
         int box_x = static_cast<int>(detectionMat.at<float>(i, 3) * image.cols);
         int box_y = static_cast<int>(detectionMat.at<float>(i, 4) * image.rows);
@@ -73,7 +115,9 @@ int main(int ac, char *av[]) {
 
     }
 
+
 #if 0
+    double probability;
     cv::minMaxLoc(outputs.reshape(1, 1), 0, &probability, 0, &position);
     int idx = position.x;
     std::cout << "position=(" << position.x << ", " << position.y << ")" << std::endl;
@@ -88,10 +132,11 @@ int main(int ac, char *av[]) {
 
     cv::imshow("Detect Cars", image);
     int k = cv::waitKey(10);
-    if ((k == 113) || (k == 'q')) {
+    if ((k == 113) || (k == 'q') || src == SRC_IM) {
       break;
     }
   }
+
   cv::destroyAllWindows();
 
   return 0;
