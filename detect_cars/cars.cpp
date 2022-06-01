@@ -137,7 +137,11 @@ int main(int ac, char *av[]) {
 #endif
 
     cv::imshow("Detect Cars", boxed);
-    int k = cv::waitKey(1000);
+    int k = 0;
+    if (src == SRC_IM)
+      k = cv::waitKey(10000);
+    else
+      k = cv::waitKey(10);
     if ((k == 113) || (k == 'q')) {
       std::cout << "k is " << k << std::endl;
       break;
