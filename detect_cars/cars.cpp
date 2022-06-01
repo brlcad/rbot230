@@ -56,6 +56,7 @@ int main(int ac, char *av[]) {
   rs2::pipeline pipe;
   cv::VideoCapture cap;
   cv::Mat image;
+  cv::Mat boxed;
 
   if (std::string(av[1]) == "rs") {
     std::cout << "Using RealSense sensor as input" << std::endl;
@@ -63,23 +64,28 @@ int main(int ac, char *av[]) {
     pipe.start();
   } else {
     std::cout << "Using [ " << av[1] << " ] as input" << std::endl;
-    src = SRC_VC;
-    int opened = cap.open(av[1]);
-    if (!opened) {
+
+    image = cv::imread(av[1]);
+    if (image.data != NULL) {
       src = SRC_IM;
-      image = cv::imread(av[1]);
+    } else {
+      src = SRC_VC;
+      int opened = cap.open(av[1]);
+      if (!opened) {
+        std::cout << "ERROR: unable to open " << av[1] << " for reading" << std::endl;
+      }
     }
   }
 
   while (1) {
-    if (src == SRC_VC && !cap.isOpened())
-      break;
     if (src == SRC_RS)
       rs_read(pipe, image);
     if (src == SRC_VC) {
-      bool success = cap.read(image);
-      if (!success)
-        break;
+      if (cap.isOpened()) {
+        bool success = cap.read(image);
+        if (!success)
+          break;
+      }
     }
 
     cv::Mat blob = cv::dnn::blobFromImage(image, 1.0, cv::Size(300, 300), cv::Scalar(103.94, 116.78, 123.68), true, false);
@@ -93,7 +99,7 @@ int main(int ac, char *av[]) {
     //    std::cout << "outputs: [2]=" << outputs.size[2] << " and [3]=" << outputs.size[3] << std::endl;
 
     cv::Mat detectionMat(outputs.size[2], outputs.size[3], CV_32F, outputs.ptr<float>());
-
+    boxed = image;
     for (int i = 0; i < detectionMat.rows; i++) {
       int id = detectionMat.at<float>(i, 1);
       float conf = detectionMat.at<float>(i, 2);
@@ -108,9 +114,9 @@ int main(int ac, char *av[]) {
         int box_y = static_cast<int>(detectionMat.at<float>(i, 4) * image.rows);
         int box_width = static_cast<int>(detectionMat.at<float>(i, 5) * image.cols - box_x);
         int box_height = static_cast<int>(detectionMat.at<float>(i, 6) * image.rows - box_y);
-        cv::rectangle(image, cv::Point(box_x, box_y), cv::Point(box_x+box_width, box_y+box_height), cv::Scalar(255, 255, 255), 2);
+        cv::rectangle(boxed, cv::Point(box_x, box_y), cv::Point(box_x+box_width, box_y+box_height), cv::Scalar(255, 255, 255), 2);
 
-        cv::putText(image, class_names[id-1].c_str(), cv::Point(box_x, box_y-5), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 0, 255), 2);
+        cv::putText(boxed, class_names[id-1].c_str(), cv::Point(box_x, box_y-5), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 0, 255), 2);
       }
 
     }
@@ -127,12 +133,13 @@ int main(int ac, char *av[]) {
     std::string label = cv::format("%s (%3.0f%%)", class_names[idx].c_str(), probability*100.0);
     //  std::cout << "Predicted: " << probability*100.0 << " => " << class_names[idx].c_str() << std::endl;
 
-    cv::putText(image, label, cv::Point(25, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
+    cv::putText(boxed, label, cv::Point(25, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
 #endif
 
-    cv::imshow("Detect Cars", image);
-    int k = cv::waitKey(10);
-    if ((k == 113) || (k == 'q') || src == SRC_IM) {
+    cv::imshow("Detect Cars", boxed);
+    int k = cv::waitKey(1000);
+    if ((k == 113) || (k == 'q')) {
+      std::cout << "k is " << k << std::endl;
       break;
     }
   }
