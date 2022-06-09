@@ -81,6 +81,8 @@ int main () {
   pcl::visualization::PCLVisualizer viewer ("3D Viewer");
   viewer.setBackgroundColor (1, 1, 1);
 
+  // Filter input points into one point per voxel grid as a simplistic
+  // means for point decimation.
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ>);
   pcl::VoxelGrid<pcl::PointXYZ> vg;
   vg.setInputCloud(pointCloudPtr);
