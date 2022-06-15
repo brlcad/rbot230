@@ -106,24 +106,32 @@ int main(int argc, char * argv[]) try
 
       auto center = points->at(points->width / 2, points->height / 2);
       std::cout << "center point is (" << double(center.x) << ", " << double(center.y) << ", " << double(center.z) << ")" << std::endl;
-      //      std::cout << "size is " << center[123] << std::endl;
-      //[rs_points.size() / 2];
-      //std::cout << "center point is (" << center.x << ", " << center.y << ", " << center.z << ")" << std::endl;
 
+      /* filter out anything too close or too far */
+      pcl::PassThrough<pcl::PointXYZ> pass;
+      pass.setInputCloud(points);
+      pass.setFilterFieldName ("z");
+      pass.setFilterLimits (0.15, 0.5);
+      pass.filter (*points);
+
+#if 0
       pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
       outrem.setInputCloud(points);
       outrem.setRadiusSearch(0.1);
       outrem.setMinNeighborsInRadius(2);
       //      outrem.setKeepOrganized(true);
       outrem.filter(*filtered);
+#endif
 
 
-#if 0
+#if 1
       pcl::VoxelGrid<pcl::PointXYZ> vg;
       vg.setInputCloud(points);
-      vg.setLeafSize(0.08f, 0.08f, 0.08f);
-      vg.filter(*points);
+      vg.setLeafSize(0.01f, 0.01f, 0.01f);
+      // vg.setMinimumPointsNumberPerVoxel(10);
+      vg.filter(*filtered);
 #endif
+
 #if 0
       pcl::IndicesPtr indices(new std::vector <int>);
       pcl::removeNaNFromPointCloud(*points, *indices);
@@ -268,7 +276,7 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640);
+  glPointSize(width / 640 * 2);
   glEnable(GL_TEXTURE_2D);
 
   int color = 0;
