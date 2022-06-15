@@ -5,14 +5,19 @@
 #include <pcl/filters/passthrough.h>
 
 #include <pcl/segmentation/min_cut_segmentation.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
-#if 0
+#include <pcl/common/io.h>
+
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_plane.h>
-#endif
 
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/extract_indices.h>
+
 
 // Struct for managing rotation of pointcloud view
 struct state {
@@ -143,7 +148,7 @@ int main(int argc, char * argv[]) try
 #endif
 
 
-#if 1
+#if 0
       //pcl::removeNaNFromPointCloud(*filtered, *indices);
 
       // OOF!  this is super-slow at default resolution.
@@ -167,6 +172,28 @@ int main(int argc, char * argv[]) try
 #endif
 
 
+#if 1
+      pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+      pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+
+      pcl::SACSegmentation<pcl::PointXYZ> seg;
+      seg.setInputCloud(filtered);
+      seg.setOptimizeCoefficients(true);
+      seg.setModelType(pcl::SACMODEL_PLANE);
+      seg.setMethodType(pcl::SAC_RANSAC);
+      seg.setDistanceThreshold(0.005);
+      seg.segment(*inliers, *coefficients);
+
+      pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::copyPointCloud(*filtered, *inliers, *planar_points);
+
+      pcl::ExtractIndices<pcl::PointXYZ> extract;
+      extract.setInputCloud(filtered);
+      extract.setIndices(inliers);
+      extract.setNegative(true);
+      extract.filter(*filtered);
+#endif
+
 #if 0
       std::vector<int> inliers;
       pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (points));
@@ -177,6 +204,7 @@ int main(int argc, char * argv[]) try
 
       pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
       pcl::copyPointCloud(*points, inliers, *planar_points);
+
 #endif
 
       /*      pcl_ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
@@ -186,7 +214,7 @@ int main(int argc, char * argv[]) try
       pass.setFilterLimits(0.0, 1.0);
       pass.filter(*cloud_filtered);
       */
-#if 1
+#if 0
       std::vector<pcl_rgbptr> layers2;
       layers2.push_back(mincut_points);
       draw_pointcloud(app, app_state, layers2);
@@ -194,6 +222,7 @@ int main(int argc, char * argv[]) try
 
       std::vector<pcl_ptr> layers;
       layers.push_back(filtered);
+      layers.push_back(planar_points);
       draw_pointcloud(app, app_state, layers);
 
 
