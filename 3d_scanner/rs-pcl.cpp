@@ -53,7 +53,17 @@ pcl_ptr points_to_pcl(const rs2::points& points)
 
 
 float3 colors[] { { 0.8f, 0.1f, 0.3f },
+                  { 0.3f, 0.8f, 0.1f },
+                  { 0.1f, 0.3f, 0.8f },
+                  { 0.8f, 0.3f, 0.1f },
+                  { 0.1f, 0.8f, 0.3f },
+                  { 0.3f, 0.1f, 0.8f },
+                  { 0.9f, 0.1f, 0.5f },
+                  { 0.5f, 0.9f, 0.1f },
+                  { 0.1f, 0.5f, 0.9f },
+                  { 0.9f, 0.5f, 0.1f },
                   { 0.1f, 0.9f, 0.5f },
+                  { 0.5f, 0.1f, 0.9f }
 };
 
 
@@ -117,14 +127,15 @@ int main(int argc, char * argv[]) try
 #if 1
       pcl::VoxelGrid<pcl::PointXYZ> vg;
       vg.setInputCloud(filtered);
-      vg.setLeafSize(0.001f, 0.001f, 0.001f);
+      vg.setLeafSize(0.01f, 0.01f, 0.01f);
       // vg.setMinimumPointsNumberPerVoxel(2);
       vg.filter(*filtered);
 #endif
 
+      /* removes exterior edge points */
 #if 0
       pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
-      outrem.setInputCloud(points);
+      outrem.setInputCloud(filtered);
       outrem.setRadiusSearch(0.1);
       outrem.setMinNeighborsInRadius(2);
       //      outrem.setKeepOrganized(true);
@@ -132,19 +143,12 @@ int main(int argc, char * argv[]) try
 #endif
 
 
-#if 0
-      pcl::IndicesPtr indices(new std::vector <int>);
-      pcl::removeNaNFromPointCloud(*points, *indices);
-      pcl::PassThrough<pcl::PointXYZ> pass;
-      pass.setInputCloud(points);
-      pass.setFilterFieldName("z");
-      pass.setFilterLimits(0.0, 1.0);
-      pass.filter(*indices);
+#if 1
+      //pcl::removeNaNFromPointCloud(*filtered, *indices);
 
       // OOF!  this is super-slow at default resolution.
       pcl::MinCutSegmentation<pcl::PointXYZ> seg;
-      seg.setInputCloud(points);
-      seg.setIndices(indices);
+      seg.setInputCloud(filtered);
       pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
       foreground_points->points.push_back(center);
       seg.setForegroundPoints(foreground_points);
@@ -182,7 +186,7 @@ int main(int argc, char * argv[]) try
       pass.setFilterLimits(0.0, 1.0);
       pass.filter(*cloud_filtered);
       */
-#if 0
+#if 1
       std::vector<pcl_rgbptr> layers2;
       layers2.push_back(mincut_points);
       draw_pointcloud(app, app_state, layers2);
@@ -288,6 +292,8 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
       glBegin(GL_POINTS);
       glColor3f(c.x, c.y, c.z);
 
+      std::cout << "drawing " << pc->points.size() << " xyz points" << std::endl;
+
       /* this segment actually prints the pointcloud */
       for (int i = 0; i < pc->points.size(); i++)
         {
@@ -319,9 +325,6 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr
 
   float width = app.width(), height = app.height();
 
-  glClearColor(192. / 255, 192. / 255, 192. / 255, 1);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
   glMatrixMode(GL_PROJECTION);
   glPushMatrix();
   gluPerspective(60, width / height, 0.01, 10.0);
@@ -342,8 +345,9 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr
 
   for (auto&& pc : points)
     {
+      std::cout << "drawing " << pc->points.size() << " rgbxyz points" << std::endl;
       glBegin(GL_POINTS);
-      glColor3f(1.0, 0.0, 0.0);
+      glColor3f(0.0, 1.0, 0.0);
 
       /* this segment actually prints the pointcloud */
       for (int i = 0; i < pc->points.size(); i++)
