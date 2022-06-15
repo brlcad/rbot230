@@ -110,9 +110,17 @@ int main(int argc, char * argv[]) try
       /* filter out anything too close or too far */
       pcl::PassThrough<pcl::PointXYZ> pass;
       pass.setInputCloud(points);
-      pass.setFilterFieldName ("z");
-      pass.setFilterLimits (0.15, 0.5);
-      pass.filter (*points);
+      pass.setFilterFieldName("z");
+      pass.setFilterLimits(0.15, 0.5);
+      pass.filter(*filtered);
+
+#if 1
+      pcl::VoxelGrid<pcl::PointXYZ> vg;
+      vg.setInputCloud(filtered);
+      vg.setLeafSize(0.001f, 0.001f, 0.001f);
+      // vg.setMinimumPointsNumberPerVoxel(2);
+      vg.filter(*filtered);
+#endif
 
 #if 0
       pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
@@ -123,14 +131,6 @@ int main(int argc, char * argv[]) try
       outrem.filter(*filtered);
 #endif
 
-
-#if 1
-      pcl::VoxelGrid<pcl::PointXYZ> vg;
-      vg.setInputCloud(points);
-      vg.setLeafSize(0.01f, 0.01f, 0.01f);
-      // vg.setMinimumPointsNumberPerVoxel(10);
-      vg.filter(*filtered);
-#endif
 
 #if 0
       pcl::IndicesPtr indices(new std::vector <int>);
