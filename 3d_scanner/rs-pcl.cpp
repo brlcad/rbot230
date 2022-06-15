@@ -107,30 +107,34 @@ int main(int argc, char * argv[]) try
       //std::cout << "center point is (" << center.x << ", " << center.y << ", " << center.z << ")" << std::endl;
 
 
-#if 0
-      pcl::IndicesPtr indices (new std::vector <int>);
-      pcl::MinCutSegmentation<pcl::PointXYZ> seg;
-      seg.setInputCloud (points);
-      seg.setIndices (indices);
-      pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ> ());
-      pcl::PointXYZ point;
-      point.x = 0.0;
-      point.y = 0.0;
-      point.z = 0.0;
-      foreground_points->points.push_back(point);
-      seg.setForegroundPoints (foreground_points);
+#if 1
+      pcl::IndicesPtr indices(new std::vector <int>);
+      pcl::removeNaNFromPointCloud(*points, *indices);
+      pcl::PassThrough<pcl::PointXYZ> pass;
+      pass.setInputCloud(points);
+      pass.setFilterFieldName("z");
+      pass.setFilterLimits(0.0, 1.0);
+      pass.filter(*indices);
 
-      seg.setSigma (0.25);
-      seg.setRadius (3.0433856);
-      seg.setNumberOfNeighbours (14);
-      seg.setSourceWeight (0.8);
+      // OOF!  this is super-slow at default resolution.
+      pcl::MinCutSegmentation<pcl::PointXYZ> seg;
+      seg.setInputCloud(points);
+      seg.setIndices(indices);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
+      foreground_points->points.push_back(center);
+      seg.setForegroundPoints(foreground_points);
+
+      seg.setSigma(0.25);
+      seg.setRadius(30.0433856);
+      seg.setNumberOfNeighbours(14);
+      seg.setSourceWeight(0.8);
 
       std::vector <pcl::PointIndices> clusters;
-      seg.extract (clusters);
+      seg.extract(clusters);
 
-      std::cout << "Maximum flow is " << seg.getMaxFlow () << std::endl;
+      std::cout << "Maximum flow is " << seg.getMaxFlow() << std::endl;
 
-      pcl::PointCloud <pcl::PointXYZRGB>::Ptr planar_points = seg.getColoredCloud ();
+      pcl::PointCloud <pcl::PointXYZRGB>::Ptr planar_points = seg.getColoredCloud();
 #endif
 
 
@@ -153,15 +157,16 @@ int main(int argc, char * argv[]) try
       pass.setFilterLimits(0.0, 1.0);
       pass.filter(*cloud_filtered);
       */
-      std::vector<pcl_ptr> layers;
-      layers.push_back(points);
-      draw_pointcloud(app, app_state, layers);
-
-#if 0
+#if 1
       std::vector<pcl_rgbptr> layers2;
       layers2.push_back(planar_points);
       draw_pointcloud(app, app_state, layers2);
 #endif
+
+      std::vector<pcl_ptr> layers;
+      layers.push_back(points);
+      draw_pointcloud(app, app_state, layers);
+
 
     }
 
