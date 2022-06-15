@@ -169,7 +169,7 @@ int main(int argc, char * argv[]) try
 #endif
 
 
-#if 0
+#if 1
       /* identify the ground plane */
       pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
       pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -209,24 +209,23 @@ int main(int argc, char * argv[]) try
         std::cout << "dist to plane: " << d << std::endl;
 #if 0
         if (d < 
-          it = filtered->erase(it);
-        } else {
-          ++it;
-        }
+            it = filtered->erase(it);
+            } else {
+            ++it;
+          }
 #endif
       }
-      #endif
+#endif
 
 
 #if 0
+      pass.setInputCloud(filtered);
       pass.setFilterFieldName("y");
       pass.setFilterLimits(-100.0, coefficients->values[3] - 0.01);
       pass.filter(*filtered);
 #endif
 
 #endif
-
-
 
 
 #if 1
@@ -254,28 +253,38 @@ int main(int argc, char * argv[]) try
 
 #if 0
       std::vector<int> inliers;
-      pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (points));
+      pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (filtered));
       pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
       ransac.setDistanceThreshold(1);
       ransac.computeModel();
       ransac.getInliers(inliers);
 
       pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
-      pcl::copyPointCloud(*points, inliers, *planar_points);
+      pcl::copyPointCloud(*filtered, inliers, *planar_points);
 
 #endif
 
+      glEnable(GL_POINT_SMOOTH);
+      glEnable(GL_BLEND);
+      glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+      glClearColor(1., 1., 1., 1);
+      // glClearColor(192. / 255, 192. / 255, 192. / 255, 0.5);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 #if 1
-      std::vector<pcl_rgbptr> layers2;
-      layers2.push_back(mincut_points);
-      draw_pointcloud(app, app_state, layers2);
-#else
+
 
       std::vector<pcl_ptr> layers;
       layers.push_back(filtered);
       layers.push_back(planar_points);
       draw_pointcloud(app, app_state, layers);
+      //#else
+
+      std::vector<pcl_rgbptr> layers2;
+      layers2.push_back(mincut_points);
+      draw_pointcloud(app, app_state, layers2);
+
 #endif
 
     }
@@ -345,9 +354,6 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
 
   float width = app.width(), height = app.height();
 
-  glClearColor(192. / 255, 192. / 255, 192. / 255, 1);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
   glMatrixMode(GL_PROJECTION);
   glPushMatrix();
   gluPerspective(60, width / height, 0.01, 10.0);
@@ -361,33 +367,28 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& 
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 2);
+  glPointSize(width / 640 * 5);
   glEnable(GL_TEXTURE_2D);
 
   int color = 0;
 
-  for (auto&& pc : points)
-    {
-      auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
+  for (auto&& pc : points) {
+    auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
 
-      glBegin(GL_POINTS);
-      glColor3f(c.x, c.y, c.z);
+    glBegin(GL_POINTS);
+    glColor3f(c.x, c.y, c.z);
 
-      std::cout << "drawing " << pc->points.size() << " xyz points" << std::endl;
+    std::cout << "drawing " << pc->points.size() << " xyz points" << std::endl;
 
-      /* this segment actually prints the pointcloud */
-      for (int i = 0; i < pc->points.size(); i++)
-        {
-          auto&& p = pc->points[i];
-          if (p.z)
-            {
-              // upload the point and texture coordinates only for points we have depth data for
-              glVertex3f(p.x, p.y, p.z);
-            }
-        }
-
-      glEnd();
+    for (int i = 0; i < pc->points.size(); i++) {
+      auto&& p = pc->points[i];
+      if (p.z) {
+        glVertex3f(p.x, p.y, p.z);
+      }
     }
+
+    glEnd();
+  }
 
   // OpenGL cleanup
   glPopMatrix();
@@ -419,30 +420,28 @@ void draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640);
+  glPointSize(width / 640 * 2);
   glEnable(GL_TEXTURE_2D);
 
-  int color = 0;
+  int color = 2;
 
-  for (auto&& pc : points)
-    {
-      std::cout << "drawing " << pc->points.size() << " rgbxyz points" << std::endl;
-      glBegin(GL_POINTS);
-      glColor3f(0.0, 1.0, 0.0);
+  for (auto&& pc : points) {
+    auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
 
-      /* this segment actually prints the pointcloud */
-      for (int i = 0; i < pc->points.size(); i++)
-        {
-          auto&& p = pc->points[i];
-          if (p.z)
-            {
-              // upload the point and texture coordinates only for points we have depth data for
-              glVertex3f(p.x, p.y, p.z);
-            }
-        }
+    std::cout << "drawing " << pc->points.size() << " rgbxyz points" << std::endl;
+    glBegin(GL_POINTS);
+    //    glColor3f(c.x, c.y, c.z);
+    glColor3f(0.0, 0.0, 1.0);
 
-      glEnd();
+    for (int i = 0; i < pc->points.size(); i++) {
+      auto&& p = pc->points[i];
+      if (p.z) {
+        glVertex3f(p.x, p.y, p.z);
+      }
     }
+
+    glEnd();
+  }
 
   // OpenGL cleanup
   glPopMatrix();
