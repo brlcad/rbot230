@@ -11,6 +11,8 @@
 #include <pcl/sample_consensus/sac_model_plane.h>
 #endif
 
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/filters/voxel_grid.h>
 
 // Struct for managing rotation of pointcloud view
 struct state {
@@ -85,6 +87,8 @@ int main(int argc, char * argv[]) try
 
     rs_points = pc.calculate(depth);
 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered (new pcl::PointCloud<pcl::PointXYZ>);
+
     // auto itx = pipeProfile.get_stream(RS2_STREAM_DEPTH).as<rs2::video_stream_profile>().get_intrinsics();
 
     while (app) {
@@ -106,8 +110,21 @@ int main(int argc, char * argv[]) try
       //[rs_points.size() / 2];
       //std::cout << "center point is (" << center.x << ", " << center.y << ", " << center.z << ")" << std::endl;
 
+      pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
+      outrem.setInputCloud(points);
+      outrem.setRadiusSearch(0.1);
+      outrem.setMinNeighborsInRadius(2);
+      //      outrem.setKeepOrganized(true);
+      outrem.filter(*filtered);
 
-#if 1
+
+#if 0
+      pcl::VoxelGrid<pcl::PointXYZ> vg;
+      vg.setInputCloud(points);
+      vg.setLeafSize(0.08f, 0.08f, 0.08f);
+      vg.filter(*points);
+#endif
+#if 0
       pcl::IndicesPtr indices(new std::vector <int>);
       pcl::removeNaNFromPointCloud(*points, *indices);
       pcl::PassThrough<pcl::PointXYZ> pass;
@@ -134,7 +151,7 @@ int main(int argc, char * argv[]) try
 
       std::cout << "Maximum flow is " << seg.getMaxFlow() << std::endl;
 
-      pcl::PointCloud <pcl::PointXYZRGB>::Ptr planar_points = seg.getColoredCloud();
+      pcl::PointCloud <pcl::PointXYZRGB>::Ptr mincut_points = seg.getColoredCloud();
 #endif
 
 
@@ -157,14 +174,14 @@ int main(int argc, char * argv[]) try
       pass.setFilterLimits(0.0, 1.0);
       pass.filter(*cloud_filtered);
       */
-#if 1
+#if 0
       std::vector<pcl_rgbptr> layers2;
-      layers2.push_back(planar_points);
+      layers2.push_back(mincut_points);
       draw_pointcloud(app, app_state, layers2);
 #endif
 
       std::vector<pcl_ptr> layers;
-      layers.push_back(points);
+      layers.push_back(filtered);
       draw_pointcloud(app, app_state, layers);
 
 
