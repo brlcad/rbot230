@@ -15,6 +15,7 @@
 #include <pcl/sample_consensus/sac_model_plane.h>
 
 #include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 
@@ -122,23 +123,43 @@ int main(int argc, char * argv[]) try
       auto center = points->at(points->width / 2, points->height / 2);
       std::cout << "center point is (" << double(center.x) << ", " << double(center.y) << ", " << double(center.z) << ")" << std::endl;
 
+
       /* filter out anything too close or too far */
+      /* approximating a half-meter cube of interest */
       pcl::PassThrough<pcl::PointXYZ> pass;
       pass.setInputCloud(points);
       pass.setFilterFieldName("z");
-      pass.setFilterLimits(0.15, 0.5);
+      pass.setFilterLimits(0.15, 0.65);
+      pass.filter(*filtered);
+      pass.setInputCloud(filtered);
+      pass.setFilterFieldName("x");
+      pass.setFilterLimits(-0.25, 0.25);
+      pass.filter(*filtered);
+      pass.setInputCloud(filtered);
+      pass.setFilterFieldName("y");
+      pass.setFilterLimits(-0.25, 0.25);
       pass.filter(*filtered);
 
-#if 1
+
+      /* reduce to a voxel grid in order to remain interactive */
       pcl::VoxelGrid<pcl::PointXYZ> vg;
       vg.setInputCloud(filtered);
-      vg.setLeafSize(0.01f, 0.01f, 0.01f);
+      vg.setLeafSize(0.005f, 0.005f, 0.005f);
       // vg.setMinimumPointsNumberPerVoxel(2);
       vg.filter(*filtered);
-#endif
 
-      /* removes exterior edge points */
+
+      /* filter out noise */
+      pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+      sor.setInputCloud(filtered);
+      sor.setMeanK(50);
+      sor.setStddevMulThresh(1.0);
+      sor.filter(*filtered);
+
+
 #if 0
+      /* remove exterior edge points */
+      /* NFG, looses too much of the foreground */
       pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
       outrem.setInputCloud(filtered);
       outrem.setRadiusSearch(0.1);
@@ -149,37 +170,14 @@ int main(int argc, char * argv[]) try
 
 
 #if 0
-      //pcl::removeNaNFromPointCloud(*filtered, *indices);
-
-      // OOF!  this is super-slow at default resolution.
-      pcl::MinCutSegmentation<pcl::PointXYZ> seg;
-      seg.setInputCloud(filtered);
-      pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
-      foreground_points->points.push_back(center);
-      seg.setForegroundPoints(foreground_points);
-
-      seg.setSigma(0.25);
-      seg.setRadius(30.0433856);
-      seg.setNumberOfNeighbours(14);
-      seg.setSourceWeight(0.8);
-
-      std::vector <pcl::PointIndices> clusters;
-      seg.extract(clusters);
-
-      std::cout << "Maximum flow is " << seg.getMaxFlow() << std::endl;
-
-      pcl::PointCloud <pcl::PointXYZRGB>::Ptr mincut_points = seg.getColoredCloud();
-#endif
-
-
-#if 1
+      /* identify the ground plane */
       pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
       pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
 
       pcl::SACSegmentation<pcl::PointXYZ> seg;
       seg.setInputCloud(filtered);
       seg.setOptimizeCoefficients(true);
-      seg.setModelType(pcl::SACMODEL_PLANE);
+      seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
       seg.setMethodType(pcl::SAC_RANSAC);
       seg.setDistanceThreshold(0.005);
       seg.segment(*inliers, *coefficients);
@@ -192,7 +190,67 @@ int main(int argc, char * argv[]) try
       extract.setIndices(inliers);
       extract.setNegative(true);
       extract.filter(*filtered);
+
+      std::cerr << "Model coefficients: " << coefficients->values[0] << " "
+                << coefficients->values[1] << " "
+                << coefficients->values[2] << " "
+                << coefficients->values[3] << std::endl;
+
+
+#if 0
+      /* filter out anything below the ground plane */
+      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = filtered->begin(); it != filtered->end();) {
+        Eigen::Vector4f plane;
+        plane[0] = coefficients->values[0];
+        plane[1] = coefficients->values[1];
+        plane[2] = coefficients->values[2];
+        plane[3] = coefficients->values[3];
+        double d = pcl::pointToPlaneDistance(*it, plane);
+        std::cout << "dist to plane: " << d << std::endl;
+#if 0
+        if (d < 
+          it = filtered->erase(it);
+        } else {
+          ++it;
+        }
 #endif
+      }
+      #endif
+
+
+#if 0
+      pass.setFilterFieldName("y");
+      pass.setFilterLimits(-100.0, coefficients->values[3] - 0.01);
+      pass.filter(*filtered);
+#endif
+
+#endif
+
+
+
+
+#if 1
+      /* use MinCut to extract foreground */
+      /* super-slow at default res, but interactive w/ voxel grid */
+      pcl::MinCutSegmentation<pcl::PointXYZ> mcseg;
+      mcseg.setInputCloud(filtered);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
+      foreground_points->points.push_back(center);
+      mcseg.setForegroundPoints(foreground_points);
+
+      mcseg.setSigma(0.25);
+      mcseg.setRadius(30.0433856);
+      mcseg.setNumberOfNeighbours(14);
+      mcseg.setSourceWeight(0.8);
+
+      std::vector <pcl::PointIndices> clusters;
+      mcseg.extract(clusters);
+
+      // std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
+
+      pcl::PointCloud <pcl::PointXYZRGB>::Ptr mincut_points = mcseg.getColoredCloud();
+#endif
+
 
 #if 0
       std::vector<int> inliers;
@@ -207,24 +265,18 @@ int main(int argc, char * argv[]) try
 
 #endif
 
-      /*      pcl_ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-      pcl::PassThrough<pcl::PointXYZ> pass;
-      pass.setInputCloud(pcl_points);
-      pass.setFilterFieldName("z");
-      pass.setFilterLimits(0.0, 1.0);
-      pass.filter(*cloud_filtered);
-      */
-#if 0
+
+#if 1
       std::vector<pcl_rgbptr> layers2;
       layers2.push_back(mincut_points);
       draw_pointcloud(app, app_state, layers2);
-#endif
+#else
 
       std::vector<pcl_ptr> layers;
       layers.push_back(filtered);
       layers.push_back(planar_points);
       draw_pointcloud(app, app_state, layers);
-
+#endif
 
     }
 
