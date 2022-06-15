@@ -29,10 +29,11 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 /* for managing rotation of pointcloud view */
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
-            offset_x(0.0f), offset_y(0.0f), ml(false) {}
+            offset_x(0.0f), offset_y(0.0f),
+            ml(false), draw0(false), draw1(false), draw2(false), draw3(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
-  bool ml;
+  bool ml, draw0, draw1, draw2, draw3;
 };
 
 
@@ -73,7 +74,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& point
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 5);
+  glPointSize(width / 640 * 3);
   glEnable(GL_TEXTURE_2D);
 
   int color = 0;
@@ -126,7 +127,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 3);
+  glPointSize(width / 640 * 1);
   glEnable(GL_TEXTURE_2D);
 
   int color = 2;
@@ -188,6 +189,14 @@ register_glfw_callbacks(window& app, state& app_state) {
       glfwSetWindowShouldClose(app, GLFW_TRUE);
     } else if (key == 'R' /* reset */) {
       app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
+    } else if (key == '0') {
+      app_state.draw0 = !app_state.draw0;
+    } else if (key == '1') {
+      app_state.draw1 = !app_state.draw1;
+    } else if (key == '2') {
+      app_state.draw2 = !app_state.draw2;
+    } else if (key == '3') {
+      app_state.draw3 = !app_state.draw3;
     } else {
       printf("key pressed == [%d]\n", key);
     }
@@ -410,22 +419,26 @@ main(int argc, char * argv[]) try {
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
     glClearColor(1., 1., 1., 1);
     // glClearColor(192. / 255, 192. / 255, 192. / 255, 0.5);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
 #if 1
-
-
     std::vector<pcl_ptr> layers;
-    layers.push_back(filtered);
-    layers.push_back(planar_points);
+    if (app_state.draw0)
+      layers.push_back(points);
+    if (app_state.draw1)
+      layers.push_back(filtered);
+    if (app_state.draw2)
+      layers.push_back(planar_points);
     draw_pointcloud(app, app_state, layers);
+
     //#else
 
     std::vector<pcl_rgbptr> layers2;
-    layers2.push_back(mincut_points);
+    if (app_state.draw3)
+      layers2.push_back(mincut_points);
     draw_pointcloud(app, app_state, layers2);
 
 #endif
