@@ -21,6 +21,9 @@
 #include <pcl/filters/extract_indices.h>
 
 
+#define VDOT(a, b) ((a)[0]*(b)[0] + (a)[1]*(b)[1] + (a)[2]*(b)[2])
+
+
 /* helper brevity */
 using pcl_ptr = pcl::PointCloud<pcl::PointXYZ>::Ptr;
 using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
@@ -320,8 +323,10 @@ main(int argc, char * argv[]) try {
     outrem.filter(*filtered);
 #endif
 
+    /* make sure we haven't filtered out everything */
+    if (filtered->size() == 0)
+      continue;
 
-#if 1
     /* identify the ground plane */
     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -335,50 +340,56 @@ main(int argc, char * argv[]) try {
     seg.segment(*inliers, *coefficients);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::copyPointCloud(*filtered, *inliers, *planar_points);
 
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setInputCloud(filtered);
-    extract.setIndices(inliers);
-    extract.setNegative(true);
-    extract.filter(*filtered);
-
-    std::cerr << "Model coefficients: " << coefficients->values[0] << " "
+    std::cout << "Model coefficients: " << coefficients->values[0] << " "
               << coefficients->values[1] << " "
               << coefficients->values[2] << " "
               << coefficients->values[3] << std::endl;
 
 
-#if 1
-    /* filter out anything below the ground plane */
-    for (pcl::PointCloud<pcl::PointXYZ>::iterator it = filtered->begin(); it != filtered->end();) {
-      static int subset = 0;
-      Eigen::Vector4f plane;
-      plane[0] = coefficients->values[0];
-      plane[1] = coefficients->values[1];
-      plane[2] = coefficients->values[2];
-      plane[3] = coefficients->values[3];
-      double d = pcl::pointToPlaneDistanceSigned(*it, plane);
-      if (subset++ % 1000000 == 0)
-        std::cout << "dist to plane: " << d << std::endl;
+    /* check if the plane is principally horizontal w.r.t. the Y axis
+     * (i.e., it's Y-up in the XZ-plane )
+     */
+    double xup[3] = {1.0, 0.0, 0.0};
+    double yup[3] = {0.0, 1.0, 0.0};
+    double zup[3] = {0.0, 0.0, 1.0};
+    double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
+    double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
+    double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
+    std::cout << "XDOT=" << xdot << " YDOT=" << ydot << "ZDOT=" << zdot << std::endl;
+    if (ydot < xdot && ydot < zdot) {
 
-      if (d < 0.002) { /* trim 2mm above the plane */
-        it = filtered->erase(it);
-      } else {
-        ++it;
+      /* filter out the horizontal plane points */
+      pcl::copyPointCloud(*filtered, *inliers, *planar_points);
+
+      pcl::ExtractIndices<pcl::PointXYZ> extract;
+      extract.setInputCloud(filtered);
+      extract.setIndices(inliers);
+      extract.setNegative(true);
+      extract.filter(*filtered);
+
+
+      /* filter out anything remaining below the ground plane */
+      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = filtered->begin(); it != filtered->end();) {
+        static int subset = 0;
+        Eigen::Vector4f plane;
+        plane[0] = coefficients->values[0];
+        plane[1] = coefficients->values[1];
+        plane[2] = coefficients->values[2];
+        plane[3] = coefficients->values[3];
+
+        double d = pcl::pointToPlaneDistanceSigned(*it, plane);
+        if (subset++ % 1000000 == 0)
+          std::cout << "dist to plane: " << d << std::endl;
+
+        if (d < 0.002) { /* trim 2mm above the plane */
+          it = filtered->erase(it);
+        } else {
+          ++it;
+        }
       }
+
     }
-#endif
-
-
-#if 0
-    pass.setInputCloud(filtered);
-    pass.setFilterFieldName("y");
-    pass.setFilterLimits(-100.0, coefficients->values[3] - 0.01);
-    pass.filter(*filtered);
-#endif
-
-#endif
 
 
 #if 1
@@ -459,4 +470,5 @@ main(int argc, char * argv[]) try {
   return EXIT_FAILURE;
 
 }
+
 
