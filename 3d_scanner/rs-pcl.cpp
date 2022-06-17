@@ -331,7 +331,7 @@ main(int argc, char * argv[]) try {
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.005);
+    seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
     seg.segment(*inliers, *coefficients);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
@@ -349,23 +349,24 @@ main(int argc, char * argv[]) try {
               << coefficients->values[3] << std::endl;
 
 
-#if 0
+#if 1
     /* filter out anything below the ground plane */
     for (pcl::PointCloud<pcl::PointXYZ>::iterator it = filtered->begin(); it != filtered->end();) {
+      static int subset = 0;
       Eigen::Vector4f plane;
       plane[0] = coefficients->values[0];
       plane[1] = coefficients->values[1];
       plane[2] = coefficients->values[2];
       plane[3] = coefficients->values[3];
-      double d = pcl::pointToPlaneDistance(*it, plane);
-      std::cout << "dist to plane: " << d << std::endl;
-#if 0
-      if (d < 
-          it = filtered->erase(it);
-          } else {
-          ++it;
-        }
-#endif
+      double d = pcl::pointToPlaneDistanceSigned(*it, plane);
+      if (subset++ % 1000000 == 0)
+        std::cout << "dist to plane: " << d << std::endl;
+
+      if (d < 0.002) { /* trim 2mm above the plane */
+        it = filtered->erase(it);
+      } else {
+        ++it;
+      }
     }
 #endif
 
