@@ -10,6 +10,8 @@
 
 #include <pcl/common/io.h>
 
+#include <pcl/visualization/cloud_viewer.h>
+
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/sample_consensus/ransac.h>
@@ -228,14 +230,23 @@ points_to_pcl(const rs2::points& points) {
 }
 
 
+//#define USING_GLFW
+#define USING_PCLVIS
+
+
 int
 main(int argc, char * argv[]) try {
-  // Create a simple OpenGL window for rendering:
-  window app(1280, 720, "RealSense PCL Pointcloud Example");
-  // Construct an object to manage view state
+
+#ifdef USING_GLFW
+  // use glfw windowing
+  window app(1280, 720, "3D Scanner");
   state app_state;
-  // register callbacks to allow manipulation of the pointcloud
   register_glfw_callbacks(app, app_state);
+#endif
+
+#ifdef USING_PCLVIS
+  pcl::visualization::CloudViewer app("Segmentation");
+#endif
 
   // Declare pointcloud object, for calculating pointclouds and texture mappings
   rs2::pointcloud pc;
@@ -258,11 +269,22 @@ main(int argc, char * argv[]) try {
 
   rs_points = pc.calculate(depth);
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered (new pcl::PointCloud<pcl::PointXYZ>);
 
   // auto itx = pipeProfile.get_stream(RS2_STREAM_DEPTH).as<rs2::video_stream_profile>().get_intrinsics();
 
-  while (app) {
+  while (
+#ifdef USING_GLFW
+         app
+#else
+#  ifdef USING_PCLVIS
+         !app.wasStopped()
+#  else
+         1
+#  endif
+#endif
+         ) {
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr object_points (new pcl::PointCloud<pcl::PointXYZ>);
 
     // Wait for the next set of frames from the camera
     frames = pipe.wait_for_frames();
@@ -270,61 +292,61 @@ main(int argc, char * argv[]) try {
 
     // Generate the pointcloud and texture mappings
     rs_points = pc.calculate(depth);
-    auto points = points_to_pcl(rs_points);
+    auto all_points = points_to_pcl(rs_points);
 
     dist_to_center = depth.get_distance(depth.get_width() / 2, depth.get_height() / 2);
     std::cout << "distance to center: " << dist_to_center << std::endl;
 
-    auto center = points->at(points->width / 2, points->height / 2);
+    auto center = all_points->at(all_points->width / 2, all_points->height / 2);
     std::cout << "center point is (" << double(center.x) << ", " << double(center.y) << ", " << double(center.z) << ")" << std::endl;
 
 
     /* filter out anything too close or too far */
     /* approximating a half-meter cube of interest */
     pcl::PassThrough<pcl::PointXYZ> pass;
-    pass.setInputCloud(points);
+    pass.setInputCloud(all_points);
     pass.setFilterFieldName("z");
     pass.setFilterLimits(0.15, 0.65);
-    pass.filter(*filtered);
-    pass.setInputCloud(filtered);
+    pass.filter(*object_points);
+    pass.setInputCloud(object_points);
     pass.setFilterFieldName("x");
     pass.setFilterLimits(-0.25, 0.25);
-    pass.filter(*filtered);
-    pass.setInputCloud(filtered);
+    pass.filter(*object_points);
+    pass.setInputCloud(object_points);
     pass.setFilterFieldName("y");
     pass.setFilterLimits(-0.25, 0.25);
-    pass.filter(*filtered);
+    pass.filter(*object_points);
 
 
     /* reduce to a voxel grid in order to remain interactive */
     pcl::VoxelGrid<pcl::PointXYZ> vg;
-    vg.setInputCloud(filtered);
+    vg.setInputCloud(object_points);
     vg.setLeafSize(0.005f, 0.005f, 0.005f);
     // vg.setMinimumPointsNumberPerVoxel(2);
-    vg.filter(*filtered);
+    vg.filter(*object_points);
 
 
     /* filter out noise */
     pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
-    sor.setInputCloud(filtered);
+    sor.setInputCloud(object_points);
     sor.setMeanK(50);
     sor.setStddevMulThresh(1.0);
-    sor.filter(*filtered);
+    sor.filter(*object_points);
 
 
 #if 0
     /* remove exterior edge points */
     /* NFG, looses too much of the foreground */
     pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
-    outrem.setInputCloud(filtered);
+    outrem.setInputCloud(object_points);
     outrem.setRadiusSearch(0.1);
     outrem.setMinNeighborsInRadius(2);
     //      outrem.setKeepOrganized(true);
-    outrem.filter(*filtered);
+    outrem.filter(*object_points);
 #endif
 
     /* make sure we haven't filtered out everything */
-    if (filtered->size() == 0)
+    if (object_points->size() == 0)
       continue;
 
     /* identify the ground plane */
@@ -332,14 +354,14 @@ main(int argc, char * argv[]) try {
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
 
     pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setInputCloud(filtered);
+    seg.setInputCloud(object_points);
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
     seg.setMethodType(pcl::SAC_RANSAC);
     seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
     seg.segment(*inliers, *coefficients);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
 
     std::cout << "Model coefficients: " << coefficients->values[0] << " "
               << coefficients->values[1] << " "
@@ -347,6 +369,7 @@ main(int argc, char * argv[]) try {
               << coefficients->values[3] << std::endl;
 
 
+#if 0
     /* check if the plane is principally horizontal w.r.t. the Y axis
      * (i.e., it's Y-up in the XZ-plane )
      */
@@ -356,21 +379,22 @@ main(int argc, char * argv[]) try {
     double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
     double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
     double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
-    std::cout << "XDOT=" << xdot << " YDOT=" << ydot << "ZDOT=" << zdot << std::endl;
+    // std::cout << "XDOT=" << xdot << " YDOT=" << ydot << " ZDOT=" << zdot << std::endl;
+
     if (ydot < xdot && ydot < zdot) {
 
       /* filter out the horizontal plane points */
-      pcl::copyPointCloud(*filtered, *inliers, *planar_points);
+      pcl::copyPointCloud(*object_points, *inliers, *ground_points);
 
       pcl::ExtractIndices<pcl::PointXYZ> extract;
-      extract.setInputCloud(filtered);
+      extract.setInputCloud(object_points);
       extract.setIndices(inliers);
       extract.setNegative(true);
-      extract.filter(*filtered);
+      extract.filter(*object_points);
 
 
       /* filter out anything remaining below the ground plane */
-      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = filtered->begin(); it != filtered->end();) {
+      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = object_points->begin(); it != object_points->end();) {
         static int subset = 0;
         Eigen::Vector4f plane;
         plane[0] = coefficients->values[0];
@@ -383,48 +407,63 @@ main(int argc, char * argv[]) try {
           std::cout << "dist to plane: " << d << std::endl;
 
         if (d < 0.002) { /* trim 2mm above the plane */
-          it = filtered->erase(it);
+          it = object_points->erase(it);
         } else {
           ++it;
         }
       }
-
     }
+#endif
 
 
 #if 1
     /* use MinCut to extract foreground */
     /* super-slow at default res, but interactive w/ voxel grid */
+
+    pcl::IndicesPtr indices(new std::vector <int>);
+    pcl::removeNaNFromPointCloud(*object_points, *indices);
+
     pcl::MinCutSegmentation<pcl::PointXYZ> mcseg;
-    mcseg.setInputCloud(filtered);
+    mcseg.setInputCloud(object_points);
+    mcseg.setIndices(indices);
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
     foreground_points->points.push_back(center);
     mcseg.setForegroundPoints(foreground_points);
 
-    mcseg.setSigma(0.25);
-    mcseg.setRadius(30.0433856);
-    mcseg.setNumberOfNeighbours(14);
-    mcseg.setSourceWeight(0.8);
+    mcseg.setSigma(.2); /* 200mm connected component size */
+    mcseg.setRadius(.1); /* not bigger than half the scan volume +-125mm */
+    mcseg.setNumberOfNeighbours(5); /* half the 3x3 */
+    mcseg.setSourceWeight(0.2);
 
     std::vector <pcl::PointIndices> clusters;
     mcseg.extract(clusters);
 
-    // std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
+    std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
 
-    pcl::PointCloud <pcl::PointXYZRGB>::Ptr mincut_points = mcseg.getColoredCloud();
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr region_points = mcseg.getColoredCloud();
+
+#endif
+
+
+#if 0
+    pcl::search::Search <pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
+pcl::IndicesPtr indices (new std::vector <int>);
+28  pcl::removeNaNFromPointCloud (*cloud, *indices);
+
 #endif
 
 
 #if 0
     std::vector<int> inliers;
-    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (filtered));
+    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
     pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
     ransac.setDistanceThreshold(1);
     ransac.computeModel();
     ransac.getInliers(inliers);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr planar_points (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::copyPointCloud(*filtered, inliers, *planar_points);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::copyPointCloud(*object_points, inliers, *ground_points);
 
 #endif
 
@@ -436,23 +475,27 @@ main(int argc, char * argv[]) try {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
-#if 1
+#ifdef USING_GLFW
     std::vector<pcl_ptr> layers;
     if (app_state.draw0)
-      layers.push_back(points);
+      layers.push_back(all_points);
     if (app_state.draw1)
-      layers.push_back(filtered);
+      layers.push_back(object_points);
     if (app_state.draw2)
-      layers.push_back(planar_points);
+      layers.push_back(ground_points);
     draw_pointcloud(app, app_state, layers);
 
     //#else
 
     std::vector<pcl_rgbptr> layers2;
     if (app_state.draw3)
-      layers2.push_back(mincut_points);
-    draw_pointcloud(app, app_state, layers2);
+      layers2.push_back(region_points);
 
+    draw_pointcloud(app, app_state, layers2);
+#else
+#  ifdef USING_PCLVIS
+    app.showCloud(region_points);
+#  endif
 #endif
 
   }
