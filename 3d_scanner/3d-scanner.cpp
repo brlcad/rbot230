@@ -3,10 +3,14 @@
 #include "./example.hpp"
 
 #include <pcl/point_types.h>
-#include <pcl/filters/passthrough.h>
+#include <pcl/features/normal_3d.h>
+
+#include <pcl/search/search.h>
+#include <pcl/search/kdtree.h>
 
 #include <pcl/segmentation/min_cut_segmentation.h>
 #include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/segmentation/region_growing.h>
 
 #include <pcl/common/io.h>
 
@@ -18,6 +22,7 @@
 #include <pcl/sample_consensus/ransac.h>
 #include <pcl/sample_consensus/sac_model_plane.h>
 
+#include <pcl/filters/passthrough.h>
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/voxel_grid.h>
@@ -381,9 +386,8 @@ main(int argc, char * argv[]) try {
               << coefficients->values[3] << std::endl;
 
 
-#if 1
     /* check if the plane is principally horizontal w.r.t. the Y axis
-     * (i.e., it's Y-up in the XZ-plane )
+     * (i.e., it's Y-up in the XZ-plane)
      */
     double xup[3] = {1.0, 0.0, 0.0};
     double yup[3] = {0.0, 1.0, 0.0};
@@ -425,11 +429,46 @@ main(int argc, char * argv[]) try {
         }
       }
     }
-#endif
+
+
+    /* use region growing segmentation to find the foreground cluster based on normals */
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
+    normal_estimator.setSearchMethod(tree);
+    normal_estimator.setInputCloud(object_points);
+    //    normal_estimator.setKSearch(25); /* use local cluster to estimate normal */
+    normal_estimator.setRadiusSearch(0.05); /* use 5mm local area to estimate normal */
+    normal_estimator.compute(*normals);
+
+    pcl::IndicesPtr indices (new std::vector <int>);
+    pcl::removeNaNFromPointCloud (*object_points, *indices);
+
+    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
+    reg.setInputCloud(object_points);
+    reg.setInputNormals(normals);
+    reg.setIndices(indices);
+
+    reg.setSearchMethod(tree);
+    reg.setNumberOfNeighbours(5);
+    //    reg.setSmoothnessThreshold(3.0 / 180.0 * M_PI);
+    //    reg.setCurvatureThreshold(1.0);
+    reg.setMinClusterSize(50);
+    reg.setMaxClusterSize(100000);
+
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract(clusters);
+    std::cout << "#Clusters is " << clusters.size();
+    if (clusters.size() > 0)
+      std::cout << " and cluster[0] size is " << clusters[0].indices.size() << std::endl;
+    else
+      std::cout << std::endl;
+
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr region_points = reg.getColoredCloud();
 
 
 #if 0
-    /* use MinCut to extract foreground */
+    /* Attempted MinCut to extract foreground, INEFFECTIVE */
     /* super-slow at default res, but interactive w/ voxel grid */
 
     pcl::IndicesPtr indices(new std::vector <int>);
@@ -462,30 +501,22 @@ main(int argc, char * argv[]) try {
     else
       app.addPointCloud<pcl::PointXYZRGB>(region_points);
 #  endif
-
 #endif
 
 
-#if 0
-    pcl::search::Search <pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
-pcl::IndicesPtr indices (new std::vector <int>);
-28  pcl::removeNaNFromPointCloud (*cloud, *indices);
-
-#endif
-
 
 #if 0
+    /* attempted RANSAC to extract ground plane, INEFFECITVE */
     std::vector<int> inliers;
     pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
     pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
     ransac.setDistanceThreshold(1);
     ransac.computeModel();
     ransac.getInliers(inliers);
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::copyPointCloud(*object_points, inliers, *ground_points);
-
 #endif
+
 
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_BLEND);
@@ -510,9 +541,9 @@ pcl::IndicesPtr indices (new std::vector <int>);
 
     std::vector<pcl_rgbptr> layers2;
     if (app_state.draw3)
-      //      layers2.push_back(region_points);
+      layers2.push_back(region_points);
 
-    draw_pointcloud(app, app_state, layers2);
+      draw_pointcloud(app, app_state, layers2);
 #else
 #  ifdef USING_PCLVIS
     //app.addPointCloud(region_points);//, pt_handler, "region_points");
