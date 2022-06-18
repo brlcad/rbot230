@@ -11,6 +11,7 @@
 #include <pcl/common/io.h>
 
 #include <pcl/visualization/cloud_viewer.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -230,8 +231,8 @@ points_to_pcl(const rs2::points& points) {
 }
 
 
-//#define USING_GLFW
-#define USING_PCLVIS
+#define USING_GLFW
+//#define USING_PCLVIS
 
 
 int
@@ -245,7 +246,11 @@ main(int argc, char * argv[]) try {
 #endif
 
 #ifdef USING_PCLVIS
-  pcl::visualization::CloudViewer app("Segmentation");
+  pcl::visualization::PCLVisualizer app("Segmentation");
+  app.setBackgroundColor(1, 1, 1);
+  app.initCameraParameters ();
+  app.setWindowName("Segmentation");
+  //pcl::visualization::CloudViewer app("Segmentation");
 #endif
 
   // Declare pointcloud object, for calculating pointclouds and texture mappings
@@ -345,6 +350,7 @@ main(int argc, char * argv[]) try {
     outrem.filter(*object_points);
 #endif
 
+
     /* make sure we haven't filtered out everything */
     if (object_points->size() == 0)
       continue;
@@ -369,7 +375,7 @@ main(int argc, char * argv[]) try {
               << coefficients->values[3] << std::endl;
 
 
-#if 0
+#if 1
     /* check if the plane is principally horizontal w.r.t. the Y axis
      * (i.e., it's Y-up in the XZ-plane )
      */
@@ -416,7 +422,7 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-#if 1
+#if 0
     /* use MinCut to extract foreground */
     /* super-slow at default res, but interactive w/ voxel grid */
 
@@ -431,10 +437,10 @@ main(int argc, char * argv[]) try {
     foreground_points->points.push_back(center);
     mcseg.setForegroundPoints(foreground_points);
 
-    mcseg.setSigma(.2); /* 200mm connected component size */
-    mcseg.setRadius(.1); /* not bigger than half the scan volume +-125mm */
-    mcseg.setNumberOfNeighbours(5); /* half the 3x3 */
-    mcseg.setSourceWeight(0.2);
+    mcseg.setSigma(.025); /* 200mm connected component size */
+    mcseg.setRadius(.01); /* not bigger than half the scan volume +-125mm */
+    mcseg.setNumberOfNeighbours(1); /* half the 3x3 */
+    mcseg.setSourceWeight(.01);
 
     std::vector <pcl::PointIndices> clusters;
     mcseg.extract(clusters);
@@ -442,6 +448,14 @@ main(int argc, char * argv[]) try {
     std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
 
     pcl::PointCloud <pcl::PointXYZRGB>::Ptr region_points = mcseg.getColoredCloud();
+
+#  ifdef USING_PCLVIS
+    static int added = 0;
+    if (added++)
+      app.updatePointCloud(region_points);
+    else
+      app.addPointCloud<pcl::PointXYZRGB>(region_points);
+#  endif
 
 #endif
 
@@ -473,6 +487,7 @@ pcl::IndicesPtr indices (new std::vector <int>);
     glClearColor(1., 1., 1., 1);
     // glClearColor(192. / 255, 192. / 255, 192. / 255, 0.5);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPointSize(3.0f);
 
 
 #ifdef USING_GLFW
@@ -489,12 +504,14 @@ pcl::IndicesPtr indices (new std::vector <int>);
 
     std::vector<pcl_rgbptr> layers2;
     if (app_state.draw3)
-      layers2.push_back(region_points);
+      //      layers2.push_back(region_points);
 
     draw_pointcloud(app, app_state, layers2);
 #else
 #  ifdef USING_PCLVIS
-    app.showCloud(region_points);
+    //app.addPointCloud(region_points);//, pt_handler, "region_points");
+    //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pt_handler (region_points, 0, 0, 0);
+    app.spinOnce();
 #  endif
 #endif
 
