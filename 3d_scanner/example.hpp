@@ -5,8 +5,12 @@
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 
-#define GL_SILENCE_DEPRECATION
-#define GLFW_INCLUDE_GLU
+#ifndef GL_SILENCE_DEPRECATION
+#  define GL_SILENCE_DEPRECATION
+#endif
+#ifndef GLFW_INCLUDE_GLU
+#  define GLFW_INCLUDE_GLU
+#endif
 #include <GLFW/glfw3.h>
 
 #include <string>
@@ -22,9 +26,10 @@
 #include "./example-utils.hpp"
 
 #ifndef PI
-#define PI  3.14159265358979323846
-#define PI_FL  3.141592f
+#  define PI  3.14159265358979323846
+#  define PI_FL  3.141592f
 #endif
+
 const float IMU_FRAME_WIDTH = 1280.f;
 const float IMU_FRAME_HEIGHT = 720.f;
 enum class Priority { high = 0, medium = -1, low = -2 };
