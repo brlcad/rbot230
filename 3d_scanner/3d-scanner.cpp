@@ -263,8 +263,14 @@ main(int argc, char * argv[]) try {
   // Start streaming with default recommended configuration
   rs2::pipeline_profile pipeProfile = pipe.start();
 
-  // get first frame to initialize center
+
+  // We drop a few frames in order for auto-exposure to settle
   auto frames = pipe.wait_for_frames();
+  for (int i = 0; i < 20; i++) {
+    frames = pipe.wait_for_frames();
+  }
+
+  // get first frame to initialize center
   auto depth = frames.get_depth_frame();
 
   std::cout << "width is " << depth.get_width() << " and height is " << depth.get_height() << std::endl;
@@ -300,7 +306,7 @@ main(int argc, char * argv[]) try {
     auto all_points = points_to_pcl(rs_points);
 
     dist_to_center = depth.get_distance(depth.get_width() / 2, depth.get_height() / 2);
-    std::cout << "distance to center: " << dist_to_center << std::endl;
+    // std::cout << "distance to center: " << dist_to_center << std::endl;
 
     auto center = all_points->at(all_points->width / 2, all_points->height / 2);
     std::cout << "center point is (" << double(center.x) << ", " << double(center.y) << ", " << double(center.z) << ")" << std::endl;
