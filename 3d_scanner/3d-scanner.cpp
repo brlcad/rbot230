@@ -14,6 +14,7 @@
 #include <pcl/segmentation/region_growing.h>
 
 #include <pcl/common/io.h>
+#include <pcl/common/distances.h>
 
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/visualization/pcl_visualizer.h>
@@ -175,7 +176,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
       pcl::PointXYZRGBtoXYZHSV(p, h);
       // std::cout << "hsv is " << (int)h.h << "," << (float)h.s << "," << (float)h.v << std::endl;
       if (1 /*h.v > 0.75*/) {
-        h.v = 0;
+        h.v *= 0.01;
         pcl::PointXYZHSVtoXYZRGB(h, p);
         // std::cout << "rgb AFTER is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
       }
@@ -261,6 +262,20 @@ points_to_pcl(const rs2::points& points) {
   }
 
   return cloud;
+}
+
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr
+pointsNearCenter(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ center, const double radius) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
+  float distance;
+  for (int i = 0; i < pnts->size(); ++i) {
+    distance = pcl::euclideanDistance(pnts->at(i), center);
+    if (distance <= radius) {
+      newPnts->push_back(pnts->at(i));
+    }
+  }
+  return newPnts;
 }
 
 
@@ -378,6 +393,9 @@ main(int argc, char * argv[]) try {
     sor.filter(*object_points);
 
 
+    /* filter out anything not near the center */
+    object_points = pointsNearCenter(object_points, center, 0.2);
+
 #if 0
     /* remove exterior edge points */
     /* NFG, looses too much of the foreground */
@@ -459,6 +477,33 @@ main(int argc, char * argv[]) try {
     }
 
 
+    /* filter out any disconnected outlier points */
+    pcl_ptr object_points2(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::RadiusOutlierRemoval<pcl::PointXYZ> filter;
+    filter.setInputCloud(object_points);
+    filter.setRadiusSearch(0.005); /* 5mm radius */
+    filter.setMinNeighborsInRadius(1);
+    filter.filter(*object_points);
+    // std::cout << "size before: " << object_points->size() << " and after: " << object_points2->size() << std::endl;
+
+
+#if 0
+    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+    kdtree.setInputCloud(object_points);
+    double radius = .25; /* filter within a 250mm radius */
+    std::vector<int> nearby; // index of surrounding points
+    std::vector<float> nearbyDistances; // distance to surrounding points
+    if (kdtree.radiusSearch(center, radius, nearby, nearbyDistances) > 0) {
+      pcl::PointIndices::Ptr inliers(new pcl::PointIndices(nearby));
+      pcl::ExtractIndices<pcl::PointXYZ> extract;
+      extract.setInputCloud(object_points);
+      extract.setIndices(inliers);
+      extract.setNegative(false);
+      extract.filter(*object_points);
+    }
+#endif
+
+
     /* use region growing segmentation to find background clusters based on normals */
     pcl::search::Search<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud <pcl::Normal>::Ptr normals(new pcl::PointCloud <pcl::Normal>);
@@ -466,7 +511,7 @@ main(int argc, char * argv[]) try {
     normal_estimator.setSearchMethod(tree);
     normal_estimator.setInputCloud(object_points);
     // normal_estimator.setKSearch(25); /* use local cluster to estimate normal */
-    normal_estimator.setRadiusSearch(0.05); /* use 50mm local area to estimate normal */
+    normal_estimator.setRadiusSearch(0.01); /* use 10mm local area to estimate normal */
     normal_estimator.compute(*normals);
 
     pcl::IndicesPtr indices(new std::vector <int>);
@@ -478,10 +523,10 @@ main(int argc, char * argv[]) try {
     reg.setIndices(indices);
 
     reg.setSearchMethod(tree);
-    reg.setNumberOfNeighbours(8);
-    reg.setSmoothnessThreshold(2.0 / 180.0 * M_PI);
+    reg.setNumberOfNeighbours(10);
+    reg.setSmoothnessThreshold(6.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold(1.0);
-    reg.setMinClusterSize(10);
+    reg.setMinClusterSize(50);
     reg.setMaxClusterSize(100000);
 
     std::vector <pcl::PointIndices> clusters;
@@ -493,6 +538,10 @@ main(int argc, char * argv[]) try {
       std::cout << " and cluster[0] size is " << clusters[0].indices.size() << std::endl;
     else
       std::cout << std::endl;
+
+    for (int i = 0; i < clusters.size(); i++) {
+      /* TODO: find which cluster has our center point */
+    }
 
 #if 0
     /* filter out the clustered background/noise points */
