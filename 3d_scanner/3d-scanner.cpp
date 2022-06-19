@@ -149,10 +149,10 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
     std::cout << "drawing " << pc->points.size() << " rgbxyz points" << std::endl;
     glBegin(GL_POINTS);
     //    glColor3f(c.x, c.y, c.z);
-    glColor3f(0.0, 0.0, 1.0);
 
     for (int i = 0; i < pc->points.size(); i++) {
       auto&& p = pc->points[i];
+      glColor3f(p.r, p.g, p.b);
       if (p.z) {
         glVertex3f(p.x, p.y, p.z);
       }
