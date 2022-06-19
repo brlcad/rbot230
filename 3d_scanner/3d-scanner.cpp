@@ -168,14 +168,14 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
     for (int i = 0; i < pc->points.size(); i++) {
       auto&& p = pc->points[i];
 
-      // std::cout << "rgb is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
+      //std::cout << "rgb is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
 
       /* convert to hsv so we can display light colors darkly */
       pcl::PointXYZHSV h;
       pcl::PointXYZRGBtoXYZHSV(p, h);
       // std::cout << "hsv is " << (int)h.h << "," << (float)h.s << "," << (float)h.v << std::endl;
-      if (h.v > 0.75) {
-        h.v -= 0.5;
+      if (1 /*h.v > 0.75*/) {
+        h.v = 0;
         pcl::PointXYZHSVtoXYZRGB(h, p);
         // std::cout << "rgb AFTER is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
       }
@@ -281,7 +281,7 @@ main(int argc, char * argv[]) try {
 #ifdef USING_PCLVIS
   pcl::visualization::PCLVisualizer app("Segmentation");
   app.setBackgroundColor(1, 1, 1);
-  app.initCameraParameters ();
+  app.initCameraParameters();
   app.setWindowName("Segmentation");
   //pcl::visualization::CloudViewer app("Segmentation");
 #endif
@@ -328,7 +328,7 @@ main(int argc, char * argv[]) try {
 #endif
          ) {
 
-    pcl_ptr object_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr object_points(new pcl::PointCloud<pcl::PointXYZ>);
 
     // Wait for the next set of frames from the camera
     frames = pipe.wait_for_frames();
@@ -406,7 +406,7 @@ main(int argc, char * argv[]) try {
     seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
     seg.segment(*inliers, *coefficients);
 
-    pcl_ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
 
     std::cout << "Model coefficients: " << coefficients->values[0] << " "
               << coefficients->values[1] << " "
@@ -459,18 +459,18 @@ main(int argc, char * argv[]) try {
     }
 
 
-    /* use region growing segmentation to find the foreground cluster based on normals */
-    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    /* use region growing segmentation to find background clusters based on normals */
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals(new pcl::PointCloud <pcl::Normal>);
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
     normal_estimator.setSearchMethod(tree);
     normal_estimator.setInputCloud(object_points);
-    //    normal_estimator.setKSearch(25); /* use local cluster to estimate normal */
-    normal_estimator.setRadiusSearch(0.05); /* use 5mm local area to estimate normal */
+    // normal_estimator.setKSearch(25); /* use local cluster to estimate normal */
+    normal_estimator.setRadiusSearch(0.05); /* use 50mm local area to estimate normal */
     normal_estimator.compute(*normals);
 
-    pcl::IndicesPtr indices (new std::vector <int>);
-    pcl::removeNaNFromPointCloud (*object_points, *indices);
+    pcl::IndicesPtr indices(new std::vector <int>);
+    pcl::removeNaNFromPointCloud(*object_points, *indices);
 
     pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
     reg.setInputCloud(object_points);
@@ -478,21 +478,33 @@ main(int argc, char * argv[]) try {
     reg.setIndices(indices);
 
     reg.setSearchMethod(tree);
-    reg.setNumberOfNeighbours(5);
-    //    reg.setSmoothnessThreshold(3.0 / 180.0 * M_PI);
-    //    reg.setCurvatureThreshold(1.0);
-    reg.setMinClusterSize(50);
+    reg.setNumberOfNeighbours(8);
+    reg.setSmoothnessThreshold(2.0 / 180.0 * M_PI);
+    reg.setCurvatureThreshold(1.0);
+    reg.setMinClusterSize(10);
     reg.setMaxClusterSize(100000);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract(clusters);
+    pcl_rgbptr region_points = reg.getColoredCloud();
+
     std::cout << "#Clusters is " << clusters.size();
     if (clusters.size() > 0)
       std::cout << " and cluster[0] size is " << clusters[0].indices.size() << std::endl;
     else
       std::cout << std::endl;
 
-    pcl_rgbptr region_points = reg.getColoredCloud();
+#if 0
+    /* filter out the clustered background/noise points */
+    for (int i = 0; i < clusters.size(); i++) {
+      pcl::PointIndices::Ptr outliers(new pcl::PointIndices(clusters[i]));
+      pcl::ExtractIndices<pcl::PointXYZ> extract;
+      extract.setInputCloud(object_points);
+      extract.setIndices(outliers);
+      extract.setNegative(true);
+      extract.filter(*object_points);
+    }
+#endif
 
 
 #if 0
@@ -536,12 +548,12 @@ main(int argc, char * argv[]) try {
 #if 0
     /* attempted RANSAC to extract ground plane, INEFFECITVE */
     std::vector<int> inliers;
-    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar (new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
+    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar(new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
     pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
     ransac.setDistanceThreshold(1);
     ransac.computeModel();
     ransac.getInliers(inliers);
-    pcl_ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::copyPointCloud(*object_points, inliers, *ground_points);
 #endif
 
@@ -575,7 +587,7 @@ main(int argc, char * argv[]) try {
 #else
 #  ifdef USING_PCLVIS
     //app.addPointCloud(region_points);//, pt_handler, "region_points");
-    //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pt_handler (region_points, 0, 0, 0);
+    //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pt_handler(region_points, 0, 0, 0);
     app.spinOnce();
 #  endif
 #endif
