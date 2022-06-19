@@ -3,6 +3,7 @@
 #include "./example.hpp"
 
 #include <pcl/point_types.h>
+#include <pcl/point_types_conversion.h>
 #include <pcl/features/normal_3d.h>
 
 #include <pcl/search/search.h>
@@ -66,6 +67,10 @@ static float3 colors[] { { 0.8f, 0.1f, 0.3f },
 // Handles all the OpenGL calls needed to display the point cloud
 static void
 draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points) {
+
+  if (points.size() == 0)
+    return;
+
   // OpenGL commands that prep screen for the pointcloud
   glPopMatrix();
   glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -91,6 +96,10 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& point
   int color = 0;
 
   for (auto&& pc : points) {
+
+    if (!pc || pc->points.size() == 0)
+      continue;
+
     auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
 
     glBegin(GL_POINTS);
@@ -119,6 +128,10 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& point
 
 static void
 draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& points) {
+
+  if (points.size() == 0)
+    return;
+
   // OpenGL commands that prep screen for the pointcloud
   glPopMatrix();
   glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -138,13 +151,15 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 1);
+  glPointSize(width / 640 * 2);
   glEnable(GL_TEXTURE_2D);
 
   int color = 2;
 
   for (auto&& pc : points) {
-    auto c = colors[(color++) % (sizeof(colors) / sizeof(float3))];
+
+    if (!pc || pc->points.size() == 0)
+      continue;
 
     std::cout << "drawing " << pc->points.size() << " rgbxyz points" << std::endl;
     glBegin(GL_POINTS);
@@ -152,6 +167,19 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
 
     for (int i = 0; i < pc->points.size(); i++) {
       auto&& p = pc->points[i];
+
+      // std::cout << "rgb is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
+
+      /* convert to hsv so we can display light colors darkly */
+      pcl::PointXYZHSV h;
+      pcl::PointXYZRGBtoXYZHSV(p, h);
+      // std::cout << "hsv is " << (int)h.h << "," << (float)h.s << "," << (float)h.v << std::endl;
+      if (h.v > 0.75) {
+        h.v -= 0.5;
+        pcl::PointXYZHSVtoXYZRGB(h, p);
+        // std::cout << "rgb AFTER is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
+      }
+
       glColor3f(p.r, p.g, p.b);
       if (p.z) {
         glVertex3f(p.x, p.y, p.z);
@@ -300,7 +328,7 @@ main(int argc, char * argv[]) try {
 #endif
          ) {
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr object_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr object_points (new pcl::PointCloud<pcl::PointXYZ>);
 
     // Wait for the next set of frames from the camera
     frames = pipe.wait_for_frames();
@@ -378,7 +406,7 @@ main(int argc, char * argv[]) try {
     seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
     seg.segment(*inliers, *coefficients);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
 
     std::cout << "Model coefficients: " << coefficients->values[0] << " "
               << coefficients->values[1] << " "
@@ -464,7 +492,7 @@ main(int argc, char * argv[]) try {
     else
       std::cout << std::endl;
 
-    pcl::PointCloud <pcl::PointXYZRGB>::Ptr region_points = reg.getColoredCloud();
+    pcl_rgbptr region_points = reg.getColoredCloud();
 
 
 #if 0
@@ -478,7 +506,7 @@ main(int argc, char * argv[]) try {
     mcseg.setInputCloud(object_points);
     mcseg.setIndices(indices);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl_ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>);
     foreground_points->points.push_back(center);
     mcseg.setForegroundPoints(foreground_points);
 
@@ -492,7 +520,7 @@ main(int argc, char * argv[]) try {
 
     std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
 
-    pcl::PointCloud <pcl::PointXYZRGB>::Ptr region_points = mcseg.getColoredCloud();
+    pcl_rgbptr region_points = mcseg.getColoredCloud();
 
 #  ifdef USING_PCLVIS
     static int added = 0;
@@ -513,7 +541,7 @@ main(int argc, char * argv[]) try {
     ransac.setDistanceThreshold(1);
     ransac.computeModel();
     ransac.getInliers(inliers);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl_ptr ground_points (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::copyPointCloud(*object_points, inliers, *ground_points);
 #endif
 
