@@ -309,17 +309,53 @@ points_to_pcl(const rs2::points& points) {
 }
 
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr
-pointsNearCenter(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ center, const double radius) {
+static pcl::PointCloud<pcl::PointXYZ>::Ptr
+pointsNearPoint(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, const double radius) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
   float distance;
   for (int i = 0; i < pnts->size(); ++i) {
-    distance = pcl::euclideanDistance(pnts->at(i), center);
+    distance = pcl::euclideanDistance(pnts->at(i), point);
     if (distance <= radius) {
       newPnts->push_back(pnts->at(i));
     }
   }
   return newPnts;
+}
+
+
+#if 0
+pcl::PointCloud<pcl::PointXYZ>::Ptr
+operator+=(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
+  float distance;
+  for (int i = 0; i < pnts->size(); ++i) {
+    distance = pcl::euclideanDistance(pnts->at(i), point);
+    if (distance <= radius) {
+      newPnts->push_back(pnts->at(i));
+    }
+  }
+  return newPnts;
+}
+#endif
+
+
+static bool
+compare_point(pcl::PointXYZ p1, pcl::PointXYZ p2) {
+  if (p1.x != p2.x)
+    return p1.x > p2.x;
+  else if (p1.y != p2.y)
+    return  p1.y > p2.y;
+  else
+    return p1.z > p2.z;
+}
+
+
+static bool
+is_same_point(pcl::PointXYZ p1, pcl::PointXYZ p2) {
+  /* exact same point, no fuzz */
+  if (p1.x == p2.x && p1.y == p2.y && p1.z == p2.z)
+    return true;
+  return false;
 }
 
 
@@ -479,8 +515,47 @@ main(int argc, char * argv[]) try {
     sor.filter(*object_points);
 
 
-    /* filter out anything not near the center */
-    object_points = pointsNearCenter(object_points, center, 0.2);
+    /* select center points using a 3x3 gaussian:
+     *
+     *  50 100  50
+     * 100 200 100
+     *  50 100  50
+     */
+    auto cpnts = pointsNearPoint(object_points, center, 0.2);
+    auto tlpnts = pointsNearPoint(object_points, tl, 0.05);
+    auto tmpnts = pointsNearPoint(object_points, tm, 0.1);
+    auto trpnts = pointsNearPoint(object_points, tr, 0.05);
+    auto mlpnts = pointsNearPoint(object_points, ml, 0.1);
+    auto mrpnts = pointsNearPoint(object_points, mr, 0.1);
+    auto blpnts = pointsNearPoint(object_points, bl, 0.05);
+    auto bmpnts = pointsNearPoint(object_points, bm, 0.1);
+    auto brpnts = pointsNearPoint(object_points, br, 0.05);
+
+    std::cout << std::setw(4);
+    std::cout << "counts: " << tlpnts->size() << " - " << tmpnts->size() << " - " << trpnts->size() << std::endl;
+    std::cout << "        " << mlpnts->size() << " - " << cpnts->size() << " - " << mrpnts->size() << std::endl;
+    std::cout << "        " << blpnts->size() << " - " << bmpnts->size() << " - " << brpnts->size() << std::endl;
+
+    std::cout << "size before: " << object_points->size() << std::endl;
+
+    object_points = cpnts;
+    *object_points += *tlpnts;
+    *object_points += *tmpnts;
+    *object_points += *trpnts;
+    *object_points += *mlpnts;
+    *object_points += *mrpnts;
+    *object_points += *blpnts;
+    *object_points += *bmpnts;
+    *object_points += *brpnts;
+
+    std::cout << "size after: " << object_points->size() << std::endl;
+
+    std::sort(object_points->begin(), object_points->end(), compare_point);
+    auto unique_end = std::unique(object_points->begin(), object_points->end(), is_same_point);
+    object_points->erase(unique_end, object_points->end());
+
+    std::cout << "size after: " << object_points->size() << std::endl;
+
 
 #if 0
     /* remove exterior edge points */
@@ -566,7 +641,7 @@ main(int argc, char * argv[]) try {
 
 
     /* filter out any disconnected outlier points */
-    pcl_ptr object_points2(new pcl::PointCloud<pcl::PointXYZ>);
+    //    pcl_ptr object_points2(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::RadiusOutlierRemoval<pcl::PointXYZ> filter;
     filter.setInputCloud(object_points);
     filter.setRadiusSearch(0.005); /* 5mm radius */
