@@ -199,6 +199,50 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
 }
 
 
+static void
+draw_grid(window& app, state& app_state, const std::vector<pcl::PointXYZ>&points) {
+
+  if (points.size() == 0)
+    return;
+
+  // OpenGL commands that prep screen for the pointcloud
+  glPopMatrix();
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+  float width = app.width(), height = app.height();
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  gluPerspective(60, width / height, 0.01, 10.0);
+
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
+
+  glTranslatef(0, 0, +0.5 + app_state.offset_y*0.05);
+  glRotated(app_state.pitch, 1, 0, 0);
+  glRotated(app_state.yaw, 0, 1, 0);
+  glTranslatef(0, 0, -0.5);
+
+  glPointSize(width / 640 * 4);
+  glEnable(GL_TEXTURE_2D);
+
+  glBegin(GL_POINTS);
+  glColor3f(0.0, 0.0, 0.0);
+  for (auto&& p : points) {
+    glVertex3f(p.x, p.y, p.z);
+  }
+  glEnd();
+
+  // OpenGL cleanup
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glPopAttrib();
+  glPushMatrix();
+}
+
+
 // Registers the state variable and callbacks to allow mouse control of the pointcloud
 static void
 register_glfw_callbacks(window& app, state& app_state) {
@@ -356,8 +400,50 @@ main(int argc, char * argv[]) try {
     dist_to_center = depth.get_distance(depth.get_width() / 2, depth.get_height() / 2);
     // std::cout << "distance to center: " << dist_to_center << std::endl;
 
-    auto center = all_points->at(all_points->width / 2, all_points->height / 2);
-    std::cout << "center point is (" << double(center.x) << ", " << double(center.y) << ", " << double(center.z) << ")" << std::endl;
+
+    /*
+     * We calculate a sampling grid that is a 3x3 pattern centered in
+     * the view with 10% coverage horizontally and vertically.
+     *
+     *
+     *    tl---tm---tr
+     *    |     |    |
+     *    ml-center-mr
+     *    |     |    |
+     *    bl---bm---br
+     *
+     */
+    double center_x = all_points->width / 2.0;
+    double center_y = all_points->height / 2.0;
+    double vertical = center_y / 5.0;
+    double horizontal = center_x / 5.0;
+
+    auto tl = all_points->at(center_x - horizontal, center_y - vertical);
+    auto tm = all_points->at(center_x, center_y - vertical);
+    auto tr = all_points->at(center_x + horizontal, center_y - vertical);
+
+    auto ml = all_points->at(center_x - horizontal, center_y);
+    auto center = all_points->at(center_x, center_y);
+    auto mr = all_points->at(center_x + horizontal, center_y);
+
+    auto bl = all_points->at(center_x - horizontal, center_y + vertical);
+    auto bm = all_points->at(center_x, center_y + vertical);
+    auto br = all_points->at(center_x + horizontal, center_y + vertical);
+
+    // std::cout << "tl point is " << tl << std::endl;
+    std::cout << "center point is " << center << std::endl;
+    // std::cout << "br point is " << br << std::endl;
+
+    std::vector<pcl::PointXYZ> grid;
+    grid.push_back(tl);
+    grid.push_back(tm);
+    grid.push_back(tr);
+    grid.push_back(ml);
+    grid.push_back(center);
+    grid.push_back(mr);
+    grid.push_back(bl);
+    grid.push_back(bm);
+    grid.push_back(br);
 
 
     /* filter out anything too close or too far */
@@ -426,10 +512,12 @@ main(int argc, char * argv[]) try {
 
     pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
 
-    std::cout << "Model coefficients: " << coefficients->values[0] << " "
+    /*
+      std::cout << "Model coefficients: " << coefficients->values[0] << " "
               << coefficients->values[1] << " "
               << coefficients->values[2] << " "
               << coefficients->values[3] << std::endl;
+    */
 
 
     /* check if the plane is principally horizontal w.r.t. the Y axis
@@ -631,14 +719,16 @@ main(int argc, char * argv[]) try {
     std::vector<pcl_rgbptr> layers2;
     if (app_state.draw3)
       layers2.push_back(region_points);
+    draw_pointcloud(app, app_state, layers2);
 
-      draw_pointcloud(app, app_state, layers2);
+    draw_grid(app, app_state, grid);
 #else
 #  ifdef USING_PCLVIS
     //app.addPointCloud(region_points);//, pt_handler, "region_points");
     //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pt_handler(region_points, 0, 0, 0);
     app.spinOnce();
 #  endif
+
 #endif
 
   }
