@@ -408,6 +408,9 @@ get_ground_plane(pcl_ptr points, pcl_ptr ground, pcl::PointIndices::Ptr inliers)
 }
 
 
+// FIXME: should really take the plane equation instead of drawing a
+// plane through the bounding volume assuming ymin/ymax tilts towards
+// the camera.
 static void
 draw_plane(window& app, state& app_state, const pcl_ptr& points) {
 
@@ -453,7 +456,7 @@ draw_plane(window& app, state& app_state, const pcl_ptr& points) {
       zmax = p.z;
   }
 
-  std::cout << "min/max = " << xmin << "," << ymin << "," << zmin << " to " << xmax << "," << ymax << "," << zmax << std::endl;
+  // std::cout << "min/max = " << xmin << "," << ymin << "," << zmin << " to " << xmax << "," << ymax << "," << zmax << std::endl;
 
   glColor3f(0.0, 0.3, 0.0);
   glBegin(GL_POLYGON);
