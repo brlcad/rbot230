@@ -458,6 +458,14 @@ draw_plane(window& app, state& app_state, const pcl_ptr& points) {
 }
 
 
+static void
+deduplicate(pcl_ptr& points) {
+  std::sort(points->begin(), points->end(), compare_point);
+  auto unique_end = std::unique(points->begin(), points->end(), is_same_point);
+  points->erase(unique_end, points->end());
+}
+
+
 #define USING_GLFW
 //#define USING_PCLVIS
 
@@ -510,6 +518,8 @@ main(int argc, char * argv[]) try {
 
   // auto itx = pipeProfile.get_stream(RS2_STREAM_DEPTH).as<rs2::video_stream_profile>().get_intrinsics();
 
+  size_t iteration = 0;
+
   while (
 #ifdef USING_GLFW
          app
@@ -534,6 +544,8 @@ main(int argc, char * argv[]) try {
 
     dist_to_center = depth.get_distance(depth.get_width() / 2, depth.get_height() / 2);
     // std::cout << "distance to center: " << dist_to_center << std::endl;
+
+    std::cout << std::endl << "=== frame " << std::setfill('0') << std::setw(4) << iteration++ << " =========" << std::endl;
 
 
     /*
@@ -688,15 +700,25 @@ main(int argc, char * argv[]) try {
     std::cout << "        " << mlpnts->size() << " - " << cpnts->size() << " - " << mrpnts->size() << std::endl;
     std::cout << "        " << blpnts->size() << " - " << bmpnts->size() << " - " << brpnts->size() << std::endl;
 
+    /* has to be a least a minimally useful set of gridded points */
+    const int minpts = 4;
     object_points = cpnts;
-    *object_points += *tlpnts;
-    *object_points += *tmpnts;
-    *object_points += *trpnts;
-    *object_points += *mlpnts;
-    *object_points += *mrpnts;
-    *object_points += *blpnts;
-    *object_points += *bmpnts;
-    *object_points += *brpnts;
+    if (tlpnts->size() > minpts)
+      *object_points += *tlpnts;
+    if (tmpnts->size() > minpts)
+      *object_points += *tmpnts;
+    if (trpnts->size() > minpts)
+      *object_points += *trpnts;
+    if (mlpnts->size() > minpts)
+      *object_points += *mlpnts;
+    if (mrpnts->size() > minpts)
+      *object_points += *mrpnts;
+    if (blpnts->size() > minpts)
+      *object_points += *blpnts;
+    if (bmpnts->size() > minpts)
+      *object_points += *bmpnts;
+    if (brpnts->size() > minpts)
+      *object_points += *brpnts;
 
     std::cout << "points in focus (w/ dupes): " << object_points->size() << std::endl;
 
@@ -704,10 +726,7 @@ main(int argc, char * argv[]) try {
     /* TODO: instead of simply de-duping, we could extract and
      * prioritize foreground points near multiple sample points.
      */
-    //deduplicate(object_points);
-    std::sort(object_points->begin(), object_points->end(), compare_point);
-    auto unique_end = std::unique(object_points->begin(), object_points->end(), is_same_point);
-    object_points->erase(unique_end, object_points->end());
+    deduplicate(object_points);
 
     std::cout << "points in focus (w/o dupes): " << object_points->size() << std::endl;
 
