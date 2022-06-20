@@ -310,7 +310,7 @@ points_to_pcl(const rs2::points& points) {
 
 
 static pcl::PointCloud<pcl::PointXYZ>::Ptr
-pointsNearPoint(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, const double radius) {
+points_near_point(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, const double radius) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
   float distance;
   for (int i = 0; i < pnts->size(); ++i) {
@@ -321,22 +321,6 @@ pointsNearPoint(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, c
   }
   return newPnts;
 }
-
-
-#if 0
-pcl::PointCloud<pcl::PointXYZ>::Ptr
-operator+=(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts) {
-  pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
-  float distance;
-  for (int i = 0; i < pnts->size(); ++i) {
-    distance = pcl::euclideanDistance(pnts->at(i), point);
-    if (distance <= radius) {
-      newPnts->push_back(pnts->at(i));
-    }
-  }
-  return newPnts;
-}
-#endif
 
 
 static bool
@@ -473,6 +457,7 @@ draw_plane(window& app, state& app_state, const pcl_ptr& points) {
   glPushMatrix();
 }
 
+
 #define USING_GLFW
 //#define USING_PCLVIS
 
@@ -595,6 +580,7 @@ main(int argc, char * argv[]) try {
     grid.push_back(bm);
     grid.push_back(br);
 
+    std::cout << "points initial: " << all_points->size() << std::endl;
 
     /* filter out anything too close or too far */
     /* approximating a half-meter cube of interest */
@@ -612,6 +598,8 @@ main(int argc, char * argv[]) try {
     pass.setFilterLimits(-0.25, 0.25);
     pass.filter(*object_points);
 
+    std::cout << "points in range: " << object_points->size() << std::endl;
+
 
     /* reduce to a voxel grid in order to remain interactive */
     pcl::VoxelGrid<pcl::PointXYZ> vg;
@@ -620,6 +608,8 @@ main(int argc, char * argv[]) try {
     // vg.setMinimumPointsNumberPerVoxel(2);
     vg.filter(*object_points);
 
+    std::cout << "points gridded: " << object_points->size() << std::endl;
+
 
     /* filter out noise, points not within a standard deviation */
     pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
@@ -627,6 +617,8 @@ main(int argc, char * argv[]) try {
     sor.setMeanK(50);
     sor.setStddevMulThresh(1.0);
     sor.filter(*object_points);
+
+    std::cout << "points denoised: " << object_points->size() << std::endl;
 
 
     /* make sure we haven't filtered out everything */
@@ -643,7 +635,7 @@ main(int argc, char * argv[]) try {
 
     if (plane != Eigen::Vector4f::Zero()) {
 #if 0
-      /* filter out the horizontal plane points */
+      /* filter out just the horizontal plane points */
       pcl::ExtractIndices<pcl::PointXYZ> extract;
       extract.setInputCloud(object_points);
       extract.setIndices(inliers);
@@ -651,7 +643,7 @@ main(int argc, char * argv[]) try {
       extract.filter(*object_points);
 #endif
 
-      /* filter out anything below the ground plane */
+      /* filter out anything at or below the ground plane */
       for (pcl::PointCloud<pcl::PointXYZ>::iterator it = object_points->begin(); it != object_points->end();) {
         static int subset = 0;
 
@@ -667,9 +659,12 @@ main(int argc, char * argv[]) try {
       }
     }
 
+    std::cout << "points above ground: " << object_points->size() << std::endl;
+
 
     /* identify center "focus" points using a 3x3 gaussian
-     * neighborhood:
+     * neighborhood.  these constitute points that are "near" the
+     * center of the field of view, creating lobes of interest.
      *
      *    50--100--50
      *    |    |    |
@@ -678,22 +673,20 @@ main(int argc, char * argv[]) try {
      *    50--100--50
      *
      */
-    auto cpnts = pointsNearPoint(object_points, center, 0.2);
-    auto tlpnts = pointsNearPoint(object_points, tl, 0.05);
-    auto tmpnts = pointsNearPoint(object_points, tm, 0.1);
-    auto trpnts = pointsNearPoint(object_points, tr, 0.05);
-    auto mlpnts = pointsNearPoint(object_points, ml, 0.1);
-    auto mrpnts = pointsNearPoint(object_points, mr, 0.1);
-    auto blpnts = pointsNearPoint(object_points, bl, 0.05);
-    auto bmpnts = pointsNearPoint(object_points, bm, 0.1);
-    auto brpnts = pointsNearPoint(object_points, br, 0.05);
+    auto cpnts = points_near_point(object_points, center, 0.2);
+    auto tlpnts = points_near_point(object_points, tl, 0.05);
+    auto tmpnts = points_near_point(object_points, tm, 0.1);
+    auto trpnts = points_near_point(object_points, tr, 0.05);
+    auto mlpnts = points_near_point(object_points, ml, 0.1);
+    auto mrpnts = points_near_point(object_points, mr, 0.1);
+    auto blpnts = points_near_point(object_points, bl, 0.05);
+    auto bmpnts = points_near_point(object_points, bm, 0.1);
+    auto brpnts = points_near_point(object_points, br, 0.05);
 
     std::cout << std::setw(4);
     std::cout << "counts: " << tlpnts->size() << " - " << tmpnts->size() << " - " << trpnts->size() << std::endl;
     std::cout << "        " << mlpnts->size() << " - " << cpnts->size() << " - " << mrpnts->size() << std::endl;
     std::cout << "        " << blpnts->size() << " - " << bmpnts->size() << " - " << brpnts->size() << std::endl;
-
-    std::cout << "size before: " << object_points->size() << std::endl;
 
     object_points = cpnts;
     *object_points += *tlpnts;
@@ -705,13 +698,18 @@ main(int argc, char * argv[]) try {
     *object_points += *bmpnts;
     *object_points += *brpnts;
 
-    std::cout << "size after: " << object_points->size() << std::endl;
+    std::cout << "points in focus (w/ dupes): " << object_points->size() << std::endl;
 
+
+    /* TODO: instead of simply de-duping, we could extract and
+     * prioritize foreground points near multiple sample points.
+     */
+    //deduplicate(object_points);
     std::sort(object_points->begin(), object_points->end(), compare_point);
     auto unique_end = std::unique(object_points->begin(), object_points->end(), is_same_point);
     object_points->erase(unique_end, object_points->end());
 
-    std::cout << "size after: " << object_points->size() << std::endl;
+    std::cout << "points in focus (w/o dupes): " << object_points->size() << std::endl;
 
 
 #if 0
@@ -735,11 +733,16 @@ main(int argc, char * argv[]) try {
     filter.setMinNeighborsInRadius(1);
     filter.filter(*object_points);
 
+    std::cout << "size connected: " << object_points->size() << std::endl;
+
 
 #if 0
+    /* TODO: this was replaced by the points_near_point() method
+     * above, but using a KdTree would be more performant.
+     */
     pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
     kdtree.setInputCloud(object_points);
-    double radius = .25; /* filter within a 250mm radius */
+    double radius = 0.25; /* filter within a 250mm radius */
     std::vector<int> nearby; // index of surrounding points
     std::vector<float> nearbyDistances; // distance to surrounding points
     if (kdtree.radiusSearch(center, radius, nearby, nearbyDistances) > 0) {
@@ -750,10 +753,15 @@ main(int argc, char * argv[]) try {
       extract.setNegative(false);
       extract.filter(*object_points);
     }
+    std::cout << "size nearby: " << object_points->size() << std::endl;
 #endif
 
 
-    /* use region growing segmentation to find background clusters based on normals */
+    /* SEGMENTATION
+     *
+     * use region growing segmentation to find background clusters
+     * based on normals.
+     */
     pcl::search::Search<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud <pcl::Normal>::Ptr normals(new pcl::PointCloud <pcl::Normal>);
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
@@ -782,15 +790,14 @@ main(int argc, char * argv[]) try {
     reg.extract(clusters);
     pcl_rgbptr region_points = reg.getColoredCloud();
 
-    std::cout << "#Clusters is " << clusters.size();
+    std::cout <<   "number of segmented clusters is " << clusters.size() << std::endl;
     if (clusters.size() > 0)
-      std::cout << " and cluster[0] size is " << clusters[0].indices.size() << std::endl;
-    else
-      std::cout << std::endl;
+      std::cout << "         and cluster[0] size is " << clusters[0].indices.size() << std::endl;
 
     for (int i = 0; i < clusters.size(); i++) {
-      /* TODO: find which cluster has our center point */
+      /* TODO: find which cluster has our focus points */
     }
+
 
 #if 0
     /* filter out the clustered background/noise points */
