@@ -359,6 +359,117 @@ is_same_point(pcl::PointXYZ p1, pcl::PointXYZ p2) {
 }
 
 
+static Eigen::Vector4f
+get_ground_plane(pcl_ptr points, pcl_ptr ground, pcl::PointIndices::Ptr inliers) {
+    /* identify the ground plane */
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+    //    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+
+    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    seg.setInputCloud(points);
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
+    seg.segment(*inliers, *coefficients);
+
+    /*
+      std::cout << "Model coefficients: " << coefficients->values[0] << " "
+              << coefficients->values[1] << " "
+              << coefficients->values[2] << " "
+              << coefficients->values[3] << std::endl;
+    */
+
+
+    /* check if the plane is principally horizontal w.r.t. the Y axis
+     * (i.e., it's Y-up in the XZ-plane)
+     */
+    double xup[3] = {1.0, 0.0, 0.0};
+    double yup[3] = {0.0, 1.0, 0.0};
+    double zup[3] = {0.0, 0.0, 1.0};
+    double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
+    double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
+    double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
+    // std::cout << "XDOT=" << xdot << " YDOT=" << ydot << " ZDOT=" << zdot << std::endl;
+
+    Eigen::Vector4f plane;
+    plane[0] = coefficients->values[0];
+    plane[1] = coefficients->values[1];
+    plane[2] = coefficients->values[2];
+    plane[3] = coefficients->values[3];
+
+    if (ydot < xdot && ydot < zdot) {
+      pcl::copyPointCloud(*points, *inliers, *ground);
+
+      return plane;
+    }
+
+    return Eigen::Vector4f::Zero();
+}
+
+
+static void
+draw_plane(window& app, state& app_state, const pcl_ptr& points) {
+
+  if (points->size() == 0)
+    return;
+
+  // OpenGL commands that prep screen for the pointcloud
+  glPopMatrix();
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+  float width = app.width(), height = app.height();
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  gluPerspective(60, width / height, 0.01, 10.0);
+
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
+
+  glTranslatef(0, 0, +0.5 + app_state.offset_y*0.05);
+  glRotated(app_state.pitch, 1, 0, 0);
+  glRotated(app_state.yaw, 0, 1, 0);
+  glTranslatef(0, 0, -0.5);
+
+  glPointSize(width / 640 * 3);
+  glEnable(GL_TEXTURE_2D);
+
+  double xmin = 1000000, ymin = 1000000, zmin = 1000000, xmax = -1000000, ymax = -1000000, zmax = -1000000;
+
+  for (auto&& p : *points) {
+    if (p.x < xmin)
+      xmin = p.x;
+    if (p.x > xmax)
+      xmax = p.x;
+    if (p.y < ymin)
+      ymin = p.y;
+    if (p.y > ymax)
+      ymax = p.y;
+    if (p.z < zmin)
+      zmin = p.z;
+    if (p.z > zmax)
+      zmax = p.z;
+  }
+
+  std::cout << "min/max = " << xmin << "," << ymin << "," << zmin << " to " << xmax << "," << ymax << "," << zmax << std::endl;
+
+  glColor3f(0.0, 0.3, 0.0);
+  glBegin(GL_POLYGON);
+  glVertex3f(xmin, ymax, zmin);
+  glVertex3f(xmax, ymax, zmin);
+  glVertex3f(xmax, ymin, zmax);
+  glVertex3f(xmin, ymin, zmax);
+  glEnd();
+
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glPopAttrib();
+  glPushMatrix();
+}
+
 #define USING_GLFW
 //#define USING_PCLVIS
 
@@ -507,7 +618,7 @@ main(int argc, char * argv[]) try {
     vg.filter(*object_points);
 
 
-    /* filter out noise */
+    /* filter out noise, points not within a standard deviation */
     pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
     sor.setInputCloud(object_points);
     sor.setMeanK(50);
@@ -515,11 +626,54 @@ main(int argc, char * argv[]) try {
     sor.filter(*object_points);
 
 
-    /* select center points using a 3x3 gaussian:
+    /* make sure we haven't filtered out everything */
+    if (object_points->size() == 0)
+      continue;
+
+
+    /* compute a ground plane that is principally horizontal with
+     * respect to the XZ plane (+Y-up).
+     */
+    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    Eigen::Vector4f plane = get_ground_plane(object_points, ground_points, inliers);
+
+    if (plane != Eigen::Vector4f::Zero()) {
+#if 0
+      /* filter out the horizontal plane points */
+      pcl::ExtractIndices<pcl::PointXYZ> extract;
+      extract.setInputCloud(object_points);
+      extract.setIndices(inliers);
+      extract.setNegative(true);
+      extract.filter(*object_points);
+#endif
+
+      /* filter out anything below the ground plane */
+      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = object_points->begin(); it != object_points->end();) {
+        static int subset = 0;
+
+        double d = pcl::pointToPlaneDistanceSigned(*it, plane);
+        if (subset++ % 1000000 == 0)
+          std::cout << "dist to plane: " << d << std::endl;
+
+        if (d < 0.002) { /* trim 2mm above the plane */
+          it = object_points->erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+
+
+    /* identify center "focus" points using a 3x3 gaussian
+     * neighborhood:
      *
-     *  50 100  50
-     * 100 200 100
-     *  50 100  50
+     *    50--100--50
+     *    |    |    |
+     *   100--200--100
+     *    |    |    |
+     *    50--100--50
+     *
      */
     auto cpnts = pointsNearPoint(object_points, center, 0.2);
     auto tlpnts = pointsNearPoint(object_points, tl, 0.05);
@@ -569,85 +723,14 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-    /* make sure we haven't filtered out everything */
-    if (object_points->size() == 0)
-      continue;
-
-    /* identify the ground plane */
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setInputCloud(object_points);
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
-    seg.segment(*inliers, *coefficients);
-
-    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
-
-    /*
-      std::cout << "Model coefficients: " << coefficients->values[0] << " "
-              << coefficients->values[1] << " "
-              << coefficients->values[2] << " "
-              << coefficients->values[3] << std::endl;
-    */
-
-
-    /* check if the plane is principally horizontal w.r.t. the Y axis
-     * (i.e., it's Y-up in the XZ-plane)
+    /* filter out any disconnected outlier points, anything not within
+     * a threshold distance of other points
      */
-    double xup[3] = {1.0, 0.0, 0.0};
-    double yup[3] = {0.0, 1.0, 0.0};
-    double zup[3] = {0.0, 0.0, 1.0};
-    double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
-    double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
-    double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
-    // std::cout << "XDOT=" << xdot << " YDOT=" << ydot << " ZDOT=" << zdot << std::endl;
-
-    if (ydot < xdot && ydot < zdot) {
-
-      /* filter out the horizontal plane points */
-      pcl::copyPointCloud(*object_points, *inliers, *ground_points);
-
-      pcl::ExtractIndices<pcl::PointXYZ> extract;
-      extract.setInputCloud(object_points);
-      extract.setIndices(inliers);
-      extract.setNegative(true);
-      extract.filter(*object_points);
-
-
-      /* filter out anything remaining below the ground plane */
-      for (pcl::PointCloud<pcl::PointXYZ>::iterator it = object_points->begin(); it != object_points->end();) {
-        static int subset = 0;
-        Eigen::Vector4f plane;
-        plane[0] = coefficients->values[0];
-        plane[1] = coefficients->values[1];
-        plane[2] = coefficients->values[2];
-        plane[3] = coefficients->values[3];
-
-        double d = pcl::pointToPlaneDistanceSigned(*it, plane);
-        if (subset++ % 1000000 == 0)
-          std::cout << "dist to plane: " << d << std::endl;
-
-        if (d < 0.002) { /* trim 2mm above the plane */
-          it = object_points->erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
-
-
-    /* filter out any disconnected outlier points */
-    //    pcl_ptr object_points2(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::RadiusOutlierRemoval<pcl::PointXYZ> filter;
     filter.setInputCloud(object_points);
     filter.setRadiusSearch(0.005); /* 5mm radius */
     filter.setMinNeighborsInRadius(1);
     filter.filter(*object_points);
-    // std::cout << "size before: " << object_points->size() << " and after: " << object_points2->size() << std::endl;
 
 
 #if 0
@@ -785,8 +868,10 @@ main(int argc, char * argv[]) try {
       layers.push_back(all_points);
     if (app_state.draw1)
       layers.push_back(object_points);
-    if (app_state.draw2)
+    if (app_state.draw2) {
+      draw_plane(app, app_state, ground_points);
       layers.push_back(ground_points);
+    }
     draw_pointcloud(app, app_state, layers);
 
     //#else
