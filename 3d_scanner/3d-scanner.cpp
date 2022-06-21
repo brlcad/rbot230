@@ -18,6 +18,8 @@
 
 #include <pcl/common/io.h>
 #include <pcl/common/distances.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/io/pcd_io.h>
 
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/visualization/pcl_visualizer.h>
@@ -52,11 +54,11 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
             offset_x(0.0f), offset_y(0.0f),
-            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false), draw6(false), draw7(false), draw8(false), draw9(false), reset(false) {}
+            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false), draw6(false), draw7(false), draw8(false), draw9(false), reset(false), write(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
   bool ml, draw0, draw1, draw2, draw3, draw4, draw5, draw6, draw7, draw8, draw9;
-  bool reset;
+  bool reset, write;
 };
 
 
@@ -335,6 +337,8 @@ register_glfw_callbacks(window& app, state& app_state) {
     } else if (key == 'R' /* reset */) {
       app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
       app_state.reset = true;
+    } else if (key == 'W' /* write */) {
+      app_state.write = true;
     } else if (key == '0') {
       app_state.draw0 = !app_state.draw0;
     } else if (key == '1') {
@@ -714,7 +718,7 @@ main(int argc, char * argv[]) try {
   pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr icp(new pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>);
   icp->setMaxCorrespondenceDistance(0.2);
   icp->setMaximumIterations(100);
-  icp->setEuclideanFitnessEpsilon(0.02);
+  icp->setEuclideanFitnessEpsilon(0.001);
 
   pcl::registration::MetaRegistration<pcl::PointXYZ> mreg;
   mreg.setRegistration(icp);
@@ -751,7 +755,7 @@ main(int argc, char * argv[]) try {
 
     if (app_state.reset) {
       std::cout << "RESET REQUESTED" << std::endl;
-      aggregated_points = object_points;
+      *aggregated_points = *object_points;
       mreg.reset();
       app_state.reset = false;
     }
@@ -1183,7 +1187,10 @@ main(int argc, char * argv[]) try {
         grid.setInputCloud(aggregated_points);
         grid.filter(*aggregated_points);
       }
+    }
 
+
+    if (app_state.draw8) {
 
       /* MESHING
        *
@@ -1215,7 +1222,7 @@ main(int argc, char * argv[]) try {
       gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
       gp3.setNormalConsistency(false);
       gp3.setInputCloud(agg_with_normals);
-      gp3.reconstruct(triangles); // NOTE: sometimes crashes
+      gp3.reconstruct(triangles);
 
     }
 
@@ -1255,6 +1262,11 @@ main(int argc, char * argv[]) try {
       std::vector<pcl::PolygonMesh> tris;
       tris.push_back(triangles);
       draw_triangles(app, app_state, tris);
+    }
+    if (app_state.write) {
+      app_state.write = false;
+      pcl::io::savePLYFile("output.ply", triangles, 8);
+      pcl::io::savePCDFile("output.pcd", *aggregated_points);
     }
 
     std::vector<pcl_rgbptr> layers2;
