@@ -672,6 +672,26 @@ find_focused_points(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters, s
 int
 main(int argc, char * argv[]) try {
 
+  std::cout << "3D Scanner v0" << std::endl
+            << "  by Christopher Sean Morrison" << std::endl
+            << "==============================" << std::endl
+            << std::endl
+            << "Key Bindings:"  << std::endl
+            << " 0 - display all scanned points" << std::endl
+            << " 1 - display detected object points" << std::endl
+            << " 2 - display ground" << std::endl
+            << " 3 - " << std::endl
+            << " 4 - display segmentations" << std::endl
+            << " 5 - display high res object points" << std::endl
+            << " 6 - display mesh" << std::endl
+            << " 7 - display aggregated points" << std::endl
+            << " 8 - calculate mesh" << std::endl
+            << " 9 - aggregate poitns" << std::endl
+            << " w - write out PLY + PCD files" << std::endl
+            << " r - reset" << std::endl
+            << " q - quit" << std::endl
+            << std::endl;
+
 #ifdef PCLVIS
   // use pcl visualizer for extraction
   pcl::visualization::PCLVisualizer pclapp("Extraction");
