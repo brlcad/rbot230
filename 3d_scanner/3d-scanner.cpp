@@ -9,6 +9,7 @@
 #include <pcl/search/search.h>
 #include <pcl/search/kdtree.h>
 
+#include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/min_cut_segmentation.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/segmentation/region_growing.h>
@@ -496,6 +497,53 @@ deduplicate(pcl_ptr& points) {
 }
 
 
+static pcl::PointCloud<pcl::PointXYZRGB>::Ptr
+get_colored_cloud(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters) {
+
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud;
+
+  if (clusters.empty())
+    return colored_cloud;
+
+  colored_cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+  srand(static_cast<unsigned int>(time(nullptr)));
+  std::vector<unsigned char> colors;
+  for (std::size_t i_segment = 0; i_segment < clusters.size(); i_segment++) {
+    colors.push_back (static_cast<unsigned char> (rand () % 256));
+    colors.push_back (static_cast<unsigned char> (rand () % 256));
+    colors.push_back (static_cast<unsigned char> (rand () % 256));
+  }
+
+  colored_cloud->width = points->width;
+  colored_cloud->height = points->height;
+  colored_cloud->is_dense = points->is_dense;
+  for (const auto& p: *points) {
+    pcl::PointXYZRGB point;
+    point.x = *(p.data);
+    point.y = *(p.data + 1);
+    point.z = *(p.data + 2);
+    point.r = 255;
+    point.g = 0;
+    point.b = 0;
+    colored_cloud->points.push_back(point);
+  }
+
+  int next_color = 0;
+  for (const auto& cluster : clusters) {
+    for (const auto& idx : (cluster.indices)) {
+      (*colored_cloud)[idx].r = colors[3 * next_color];
+      (*colored_cloud)[idx].g = colors[3 * next_color + 1];
+      (*colored_cloud)[idx].b = colors[3 * next_color + 2];
+    }
+    next_color++;
+  }
+
+  return (colored_cloud);
+}
+
+
+
 #define USING_GLFW
 //#define USING_PCLVIS
 
@@ -806,12 +854,17 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-    /* SEGMENTATION
+    /* set up an acceleration structure for both segmentation methods */
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+    tree->setInputCloud(object_points);
+
+
+    /* NORMAL SEGMENTATION
      *
-     * use region growing segmentation to find background clusters
-     * based on normals.
+     * use region growing segmentation to find surface patches based
+     * on normals.
      */
-    pcl::search::Search<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+    //pcl::search::Search<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud <pcl::Normal>::Ptr normals(new pcl::PointCloud <pcl::Normal>);
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
     normal_estimator.setSearchMethod(tree);
@@ -835,13 +888,36 @@ main(int argc, char * argv[]) try {
     reg.setMinClusterSize(50);
     reg.setMaxClusterSize(100000);
 
-    std::vector <pcl::PointIndices> clusters;
-    reg.extract(clusters);
-    pcl_rgbptr region_points = reg.getColoredCloud();
+    std::vector <pcl::PointIndices> n_clusters;
+    reg.extract(n_clusters);
+    pcl_rgbptr normal_region_points = reg.getColoredCloud();
 
-    std::cout <<   "number of segmented clusters is " << clusters.size() << std::endl;
-    if (clusters.size() > 0)
-      std::cout << "         and cluster[0] size is " << clusters[0].indices.size() << std::endl;
+    std::cout <<   "number of normal clusters is " << n_clusters.size() << std::endl;
+    if (n_clusters.size() > 0)
+      std::cout << "         and n_cluster[0] size is " << n_clusters[0].indices.size() << std::endl;
+
+
+    /* EUCLIDEAN SEGMENTATION
+     *
+     * use distance-based segmentation to find clusters of points
+     * based on locality.
+     */
+    pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+
+    ec.setClusterTolerance(0.01); // 10cm (i.e., physically adjacent)
+    ec.setMinClusterSize(50);
+    ec.setMaxClusterSize(100000);
+    ec.setSearchMethod(tree);
+    ec.setInputCloud(object_points);
+
+    std::vector<pcl::PointIndices> e_clusters;
+    ec.extract(e_clusters);
+    pcl_rgbptr euclidean_region_points = get_colored_cloud(object_points, e_clusters);
+
+    std::cout <<   "number of euclidean clusters is " << e_clusters.size() << std::endl;
+    if (e_clusters.size() > 0)
+      std::cout << "         and e_cluster[0] size is " << e_clusters[0].indices.size() << std::endl;
+
 
     /* find which clusters have our focus points */
     pcl_ptr segmented_points(new pcl::PointCloud<pcl::PointXYZ>);
