@@ -965,8 +965,11 @@ main(int argc, char * argv[]) try {
 
 
     /* find which clusters have our focus points */
-    pcl_ptr segmented_points = find_focused_points(object_points, n_clusters, focus_points);
-    //    segmented_points += find_focused_points(object_points, e_clusters, focus_points);
+    pcl_ptr n_segmented_points = find_focused_points(object_points, n_clusters, focus_points);
+    pcl_ptr e_segmented_points = find_focused_points(object_points, e_clusters, focus_points);
+    pcl_ptr segmented_points = n_segmented_points;
+    *segmented_points += *e_segmented_points;
+    deduplicate(segmented_points);
 
     /* find high-resolution points near our segmentation */
     pcl_ptr high_points(new pcl::PointCloud<pcl::PointXYZ>);
