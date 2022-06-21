@@ -43,10 +43,10 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
             offset_x(0.0f), offset_y(0.0f),
-            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false) {}
+            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
-  bool ml, draw0, draw1, draw2, draw3, draw4;
+  bool ml, draw0, draw1, draw2, draw3, draw4, draw5;
 };
 
 
@@ -283,6 +283,8 @@ register_glfw_callbacks(window& app, state& app_state) {
       app_state.draw3 = !app_state.draw3;
     } else if (key == '4') {
       app_state.draw4 = !app_state.draw4;
+    } else if (key == '5') {
+      app_state.draw5 = !app_state.draw5;
     } else {
       printf("key pressed == [%d]\n", key);
     }
@@ -831,7 +833,7 @@ main(int argc, char * argv[]) try {
         auto idx = clusters[i].indices[j];
         //std::cout << "looking for " << idx << std::endl;
         //std::cout << "comparing " << (*object_points)[idx] << " == " << center << std::endl;
-        float tol = 0.005; /* grid size */
+        float tol = 0.01; /* +- grid size */
         if (near_point((*object_points)[idx], center, tol) ||
             near_point((*object_points)[idx], tl, tol) ||
             near_point((*object_points)[idx], tm, tol) ||
@@ -862,6 +864,18 @@ main(int argc, char * argv[]) try {
         std::cout << "did not find cluster " << i << std::endl;
       }
     }
+
+
+    /* FIXME: this is stupid slow, needs to use KNN search, KD-tree,
+     * or really anything other than this O(N*M) traversal
+    */
+    /* find high-resolution points near our segmentation */
+    pcl_ptr high_points(new pcl::PointCloud<pcl::PointXYZ>);
+    for (pcl::PointCloud<pcl::PointXYZ>::iterator it = segmented_points->begin(); it != segmented_points->end(); ++it) {
+      auto pnts = points_near_point(all_points, *it, 0.005); /* points within grid cell */
+      *high_points += *pnts;
+    }
+    deduplicate(high_points);
 
 
 #if 0
@@ -949,6 +963,9 @@ main(int argc, char * argv[]) try {
     }
     if (app_state.draw4) {
       layers.push_back(segmented_points);
+    }
+    if (app_state.draw5) {
+      layers.push_back(high_points);
     }
     draw_pointcloud(app, app_state, layers);
 
