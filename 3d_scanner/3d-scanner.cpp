@@ -654,7 +654,7 @@ find_focused_points(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters, s
  *
  * uncomment this to test meshing result
  */
-#define PCLVIS
+//#define PCLVIS
 
 
 int
@@ -1120,8 +1120,12 @@ main(int argc, char * argv[]) try {
     pcl::copyPointCloud(*object_points, inliers, *ground_points);
 #endif
 
-
-    /* mesh high-res points w/ Greedy Projection Triangulation */
+    /* MESHING
+     *
+     * mesh high-res points w/ Greedy Projection Triangulation.  this
+     * requires a decent amount of point coverage and does not
+     * guarantee a solid mesh, but it is relative fast.
+     */
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
     pcl::PointCloud<pcl::Normal>::Ptr norms (new pcl::PointCloud<pcl::Normal>);
     pcl::search::KdTree<pcl::PointXYZ>::Ptr ptree (new pcl::search::KdTree<pcl::PointXYZ>);
