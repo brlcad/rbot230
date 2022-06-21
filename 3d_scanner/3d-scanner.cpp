@@ -712,8 +712,9 @@ main(int argc, char * argv[]) try {
   /* get set up to aggregate points as frames stream in */
   pcl_ptr aggregated_points(new pcl::PointCloud<pcl::PointXYZ>);
   pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr icp(new pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>);
-  icp->setMaxCorrespondenceDistance(0.1);
-  icp->setMaximumIterations(50);
+  icp->setMaxCorrespondenceDistance(0.2);
+  icp->setMaximumIterations(100);
+  icp->setEuclideanFitnessEpsilon(0.02);
 
   pcl::registration::MetaRegistration<pcl::PointXYZ> mreg;
   mreg.setRegistration(icp);
@@ -751,6 +752,7 @@ main(int argc, char * argv[]) try {
     if (app_state.reset) {
       std::cout << "RESET REQUESTED" << std::endl;
       aggregated_points = object_points;
+      mreg.reset();
       app_state.reset = false;
     }
 
@@ -1170,13 +1172,16 @@ main(int argc, char * argv[]) try {
        * TODO: default registration seems rather horrible.  need to
        * leverage the IMU and/or features in the scan data.
        */
-      bool converged = mreg.registerCloud(segmented_points);
+      bool converged = mreg.registerCloud(high_points);
       std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
       if (converged) {
         pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
-        transformPointCloud(*segmented_points, *tmp, mreg.getAbsoluteTransform());
+        transformPointCloud(*high_points, *tmp, mreg.getAbsoluteTransform());
         *aggregated_points += *tmp;
-        deduplicate(aggregated_points);
+        pcl::VoxelGrid<pcl::PointXYZ> grid;
+        grid.setLeafSize(0.002, 0.002, 0.002); /* 2mm mesh grid */
+        grid.setInputCloud(aggregated_points);
+        grid.filter(*aggregated_points);
       }
 
 
