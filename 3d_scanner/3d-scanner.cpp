@@ -309,13 +309,20 @@ points_to_pcl(const rs2::points& points) {
 }
 
 
+static bool
+near_point(pcl::PointXYZ A, pcl::PointXYZ B, const double dist) {
+  float distance = pcl::euclideanDistance(A, B);
+  if (distance <= dist)
+    return true;
+  return false;
+}
+
+
 static pcl::PointCloud<pcl::PointXYZ>::Ptr
 points_near_point(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, const double radius) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
-  float distance;
   for (int i = 0; i < pnts->size(); ++i) {
-    distance = pcl::euclideanDistance(pnts->at(i), point);
-    if (distance <= radius) {
+    if (near_point(pnts->at(i), point, radius)) {
       newPnts->push_back(pnts->at(i));
     }
   }
@@ -442,7 +449,7 @@ draw_plane(window& app, state& app_state, const pcl_ptr& points) {
 
   // std::cout << "min/max = " << xmin << "," << ymin << "," << zmin << " to " << xmax << "," << ymax << "," << zmax << std::endl;
 
-  glColor3f(0.0, 0.3, 0.0);
+  glColor3f(0.7, 0.95, 0.7);
   glBegin(GL_POLYGON);
   glVertex3f(xmin, ymax, zmin);
   glVertex3f(xmax, ymax, zmin);
@@ -813,8 +820,42 @@ main(int argc, char * argv[]) try {
     if (clusters.size() > 0)
       std::cout << "         and cluster[0] size is " << clusters[0].indices.size() << std::endl;
 
+    /* find which cluster has our focus points */
     for (int i = 0; i < clusters.size(); i++) {
-      /* TODO: find which cluster has our focus points */
+      /* scan for focus points */
+      bool found_focus = false;
+      for (int j = 0; j < clusters[i].indices.size(); j++) {
+        auto idx = clusters[i].indices[j];
+        //std::cout << "looking for " << idx << std::endl;
+        //std::cout << "comparing " << (*object_points)[idx] << " == " << center << std::endl;
+        float tol = 0.005; /* grid size */
+        if (near_point((*object_points)[idx], center, tol) ||
+            near_point((*object_points)[idx], tl, tol) ||
+            near_point((*object_points)[idx], tm, tol) ||
+            near_point((*object_points)[idx], tr, tol) ||
+            near_point((*object_points)[idx], ml, tol) ||
+            near_point((*object_points)[idx], mr, tol) ||
+            near_point((*object_points)[idx], bl, tol) ||
+            near_point((*object_points)[idx], bm, tol) ||
+            near_point((*object_points)[idx], br, tol)) {
+          found_focus = true;
+          break;
+        }
+      }
+      if (!found_focus) {
+        std::cout << "did not find cluster " << i << std::endl;
+        pcl::ExtractIndices<pcl::PointXYZ> extract;
+        pcl::IndicesPtr indices(new pcl::Indices());
+        for (int j = 0; j < clusters[i].indices.size(); j++) {
+          indices->push_back(clusters[i].indices[j]);
+        }
+        extract.setInputCloud(object_points);
+        extract.setIndices(indices);
+        extract.setNegative(true);
+        extract.filter(*object_points);
+      } else {
+        std::cout << "FOUND cluster " << i << std::endl;
+      }
     }
 
 
