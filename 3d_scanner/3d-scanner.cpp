@@ -170,16 +170,16 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
     for (int i = 0; i < pc->points.size(); i++) {
       auto&& p = pc->points[i];
 
-      //std::cout << "rgb is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
+      //std::cout << "rgb is " << (int)p.r << ", " << (int)p.g << ", " << (int)p.b << std::endl;
 
       /* convert to hsv so we can display light colors darkly */
       pcl::PointXYZHSV h;
       pcl::PointXYZRGBtoXYZHSV(p, h);
-      // std::cout << "hsv is " << (int)h.h << "," << (float)h.s << "," << (float)h.v << std::endl;
+      // std::cout << "hsv is " << (int)h.h << ", " << (float)h.s << ", " << (float)h.v << std::endl;
       if (1 /*h.v > 0.75*/) {
         h.v *= 0.01;
         pcl::PointXYZHSVtoXYZRGB(h, p);
-        // std::cout << "rgb AFTER is " << (int)p.r << "," << (int)p.g << "," << (int)p.b << std::endl;
+        // std::cout << "rgb AFTER is " << (int)p.r << ", " << (int)p.g << ", " << (int)p.b << std::endl;
       }
 
       glColor3f(p.r, p.g, p.b);
@@ -200,8 +200,9 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
 }
 
 
+/* helper used for the primary overlay of focus points */
 static void
-draw_grid(window& app, state& app_state, const std::vector<pcl::PointXYZ>&points) {
+draw_points(window& app, state& app_state, const std::vector<pcl::PointXYZ>&points, int size = 4) {
 
   if (points.size() == 0)
     return;
@@ -225,7 +226,7 @@ draw_grid(window& app, state& app_state, const std::vector<pcl::PointXYZ>&points
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 4);
+  glPointSize(width / 640 * size);
   glEnable(GL_TEXTURE_2D);
 
   glBegin(GL_POINTS);
@@ -376,50 +377,50 @@ is_same_point(pcl::PointXYZ p1, pcl::PointXYZ p2) {
 
 static Eigen::Vector4f
 get_ground_plane(pcl_ptr points, pcl_ptr ground, pcl::PointIndices::Ptr inliers) {
-    /* identify the ground plane */
-    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-    //    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+  /* identify the ground plane */
+  pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+  //    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
 
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setInputCloud(points);
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
-    seg.segment(*inliers, *coefficients);
+  pcl::SACSegmentation<pcl::PointXYZ> seg;
+  seg.setInputCloud(points);
+  seg.setOptimizeCoefficients(true);
+  seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(0.003); /* +-3mm tol at 500mm */
+  seg.segment(*inliers, *coefficients);
 
-    /*
-      std::cout << "Model coefficients: " << coefficients->values[0] << " "
-              << coefficients->values[1] << " "
-              << coefficients->values[2] << " "
-              << coefficients->values[3] << std::endl;
-    */
+  /*
+    std::cout << "Model coefficients: " << coefficients->values[0] << " "
+    << coefficients->values[1] << " "
+    << coefficients->values[2] << " "
+    << coefficients->values[3] << std::endl;
+  */
 
 
-    /* check if the plane is principally horizontal w.r.t. the Y axis
-     * (i.e., it's Y-up in the XZ-plane)
-     */
-    double xup[3] = {1.0, 0.0, 0.0};
-    double yup[3] = {0.0, 1.0, 0.0};
-    double zup[3] = {0.0, 0.0, 1.0};
-    double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
-    double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
-    double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
-    // std::cout << "XDOT=" << xdot << " YDOT=" << ydot << " ZDOT=" << zdot << std::endl;
+  /* check if the plane is principally horizontal w.r.t. the Y axis
+   * (i.e., it's Y-up in the XZ-plane)
+   */
+  double xup[3] = {1.0, 0.0, 0.0};
+  double yup[3] = {0.0, 1.0, 0.0};
+  double zup[3] = {0.0, 0.0, 1.0};
+  double xdot = VDOT(xup, coefficients->values) / coefficients->values[3];
+  double ydot = VDOT(yup, coefficients->values) / coefficients->values[3];
+  double zdot = VDOT(zup, coefficients->values) / coefficients->values[3];
+  // std::cout << "XDOT=" << xdot << " YDOT=" << ydot << " ZDOT=" << zdot << std::endl;
 
-    Eigen::Vector4f plane;
-    plane[0] = coefficients->values[0];
-    plane[1] = coefficients->values[1];
-    plane[2] = coefficients->values[2];
-    plane[3] = coefficients->values[3];
+  Eigen::Vector4f plane;
+  plane[0] = coefficients->values[0];
+  plane[1] = coefficients->values[1];
+  plane[2] = coefficients->values[2];
+  plane[3] = coefficients->values[3];
 
-    if (ydot < xdot && ydot < zdot) {
-      pcl::copyPointCloud(*points, *inliers, *ground);
+  if (ydot < xdot && ydot < zdot) {
+    pcl::copyPointCloud(*points, *inliers, *ground);
 
-      return plane;
-    }
+    return plane;
+  }
 
-    return Eigen::Vector4f::Zero();
+  return Eigen::Vector4f::Zero();
 }
 
 
@@ -471,7 +472,7 @@ draw_plane(window& app, state& app_state, const pcl_ptr& points) {
       zmax = p.z;
   }
 
-  // std::cout << "min/max = " << xmin << "," << ymin << "," << zmin << " to " << xmax << "," << ymax << "," << zmax << std::endl;
+  // std::cout << "min/max = " << xmin << ", " << ymin << ", " << zmin << " to " << xmax << ", " << ymax << ", " << zmax << std::endl;
 
   glColor3f(0.7, 0.95, 0.7);
   glBegin(GL_POLYGON);
@@ -497,7 +498,7 @@ deduplicate(pcl_ptr& points) {
 }
 
 
-static pcl::PointCloud<pcl::PointXYZRGB>::Ptr
+static pcl_rgbptr
 get_colored_cloud(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters) {
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud;
@@ -542,6 +543,50 @@ get_colored_cloud(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters) {
   return (colored_cloud);
 }
 
+
+static pcl_ptr
+find_focused_points(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters, std::vector<pcl::PointXYZ>& focuspoints) {
+
+  pcl_ptr segmented_points(new pcl::PointCloud<pcl::PointXYZ>);
+
+  for (int i = 0; i < clusters.size(); i++) {
+    /* scan for focus points */
+    bool found_focus = false;
+    for (int j = 0; j < clusters[i].indices.size(); j++) {
+      auto idx = clusters[i].indices[j];
+
+      float tol = 0.01; /* +- grid size */
+      for (auto fpnt : focuspoints) {
+        if (near_point((*points)[idx], fpnt, tol)) {
+          found_focus = true;
+          break;
+        }
+      }
+
+      if (found_focus)
+        break;
+    }
+
+    if (found_focus) {
+      /*
+        pcl::ExtractIndices<pcl::PointXYZ> extract;
+        pcl::IndicesPtr indices(new pcl::Indices());
+        extract.setInputCloud(object_points);
+        extract.setIndices(indices);
+        extract.setNegative(true);
+        extract.filter(*object_points);
+      */
+      std::cout << "FOUND cluster " << i << std::endl;
+      for (int j = 0; j < clusters[i].indices.size(); j++) {
+        segmented_points->push_back((*points)[clusters[i].indices[j]]);
+      }
+    } else {
+      std::cout << "did not find cluster " << i << std::endl;
+    }
+  }
+
+  return segmented_points;
+}
 
 
 #define USING_GLFW
@@ -659,16 +704,16 @@ main(int argc, char * argv[]) try {
     std::cout << "center point is " << center << std::endl;
     // std::cout << "br point is " << br << std::endl;
 
-    std::vector<pcl::PointXYZ> grid;
-    grid.push_back(tl);
-    grid.push_back(tm);
-    grid.push_back(tr);
-    grid.push_back(ml);
-    grid.push_back(center);
-    grid.push_back(mr);
-    grid.push_back(bl);
-    grid.push_back(bm);
-    grid.push_back(br);
+    std::vector<pcl::PointXYZ> focus_points;
+    focus_points.push_back(tl);
+    focus_points.push_back(tm);
+    focus_points.push_back(tr);
+    focus_points.push_back(ml);
+    focus_points.push_back(center);
+    focus_points.push_back(mr);
+    focus_points.push_back(bl);
+    focus_points.push_back(bm);
+    focus_points.push_back(br);
 
     std::cout << "points initial: " << all_points->size() << std::endl;
 
@@ -920,46 +965,8 @@ main(int argc, char * argv[]) try {
 
 
     /* find which clusters have our focus points */
-    pcl_ptr segmented_points(new pcl::PointCloud<pcl::PointXYZ>);
-    for (int i = 0; i < clusters.size(); i++) {
-      /* scan for focus points */
-      bool found_focus = false;
-      for (int j = 0; j < clusters[i].indices.size(); j++) {
-        auto idx = clusters[i].indices[j];
-        //std::cout << "looking for " << idx << std::endl;
-        //std::cout << "comparing " << (*object_points)[idx] << " == " << center << std::endl;
-        float tol = 0.01; /* +- grid size */
-        if (near_point((*object_points)[idx], center, tol) ||
-            near_point((*object_points)[idx], tl, tol) ||
-            near_point((*object_points)[idx], tm, tol) ||
-            near_point((*object_points)[idx], tr, tol) ||
-            near_point((*object_points)[idx], ml, tol) ||
-            near_point((*object_points)[idx], mr, tol) ||
-            near_point((*object_points)[idx], bl, tol) ||
-            near_point((*object_points)[idx], bm, tol) ||
-            near_point((*object_points)[idx], br, tol)) {
-          found_focus = true;
-          break;
-        }
-      }
-      if (found_focus) {
-        std::cout << "FOUND cluster " << i << std::endl;
-        //pcl::ExtractIndices<pcl::PointXYZ> extract;
-        //pcl::IndicesPtr indices(new pcl::Indices());
-        for (int j = 0; j < clusters[i].indices.size(); j++) {
-          segmented_points->push_back((*object_points)[clusters[i].indices[j]]);
-        }
-        /*
-          extract.setInputCloud(object_points);
-          extract.setIndices(indices);
-          extract.setNegative(true);
-          extract.filter(*object_points);
-        */
-      } else {
-        std::cout << "did not find cluster " << i << std::endl;
-      }
-    }
-
+    pcl_ptr segmented_points = find_focused_points(object_points, n_clusters, focus_points);
+    //    segmented_points += find_focused_points(object_points, e_clusters, focus_points);
 
     /* find high-resolution points near our segmentation */
     pcl_ptr high_points(new pcl::PointCloud<pcl::PointXYZ>);
@@ -1040,7 +1047,6 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-
 #if 0
     /* attempted RANSAC to extract ground plane, INEFFECITVE */
     std::vector<int> inliers;
@@ -1087,12 +1093,14 @@ main(int argc, char * argv[]) try {
     //#else
 
     std::vector<pcl_rgbptr> layers2;
-    if (app_state.draw3)
-      layers2.push_back(region_points);
+    if (app_state.draw3) {
+      layers2.push_back(normal_region_points);
+      layers2.push_back(euclidean_region_points);
+    }
     draw_pointcloud(app, app_state, layers2);
 
 
-    draw_grid(app, app_state, grid);
+    draw_points(app, app_state, focus_points);
 #else
 #  ifdef USING_PCLVIS
     //app.addPointCloud(region_points);//, pt_handler, "region_points");
