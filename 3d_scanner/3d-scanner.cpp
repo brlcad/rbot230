@@ -334,6 +334,25 @@ points_near_point(pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point,
 }
 
 
+static pcl::PointCloud<pcl::PointXYZ>::Ptr
+kdtree_points_near_point(pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, pcl::PointCloud<pcl::PointXYZ>::Ptr pnts, pcl::PointXYZ point, const double radius) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr newPnts(new pcl::PointCloud<pcl::PointXYZ>);
+  std::vector<int> pointIdxRadiusSearch;
+  std::vector<float> pointRadiusSquaredDistance;
+  auto ret = kdtree.radiusSearch(point, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance);
+  if (ret > 0) {
+    for (size_t i = 0; i < pointIdxRadiusSearch.size(); ++i) {
+      newPnts->points.push_back(pnts->points[pointIdxRadiusSearch[i]]);
+    }
+  }
+  newPnts->width = newPnts->points.size();
+  newPnts->height = 1;
+  newPnts->is_dense = true;
+
+  return newPnts;
+}
+
+
 static bool
 compare_point(pcl::PointXYZ p1, pcl::PointXYZ p2) {
   if (p1.x != p2.x)
@@ -866,13 +885,16 @@ main(int argc, char * argv[]) try {
     }
 
 
-    /* FIXME: this is stupid slow, needs to use KNN search, KD-tree,
-     * or really anything other than this O(N*M) traversal
-    */
     /* find high-resolution points near our segmentation */
     pcl_ptr high_points(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+    kdtree.setInputCloud(all_points);
     for (pcl::PointCloud<pcl::PointXYZ>::iterator it = segmented_points->begin(); it != segmented_points->end(); ++it) {
-      auto pnts = points_near_point(all_points, *it, 0.005); /* points within grid cell */
+      /* get all points near this grid cell.  calling
+       * points_near_point() is stupid slow with its O(N*M) traversal,
+       * so a KD-tree optimization keeps us interactive
+       */
+      auto pnts = kdtree_points_near_point(kdtree, all_points, *it, 0.005);
       *high_points += *pnts;
     }
     deduplicate(high_points);
