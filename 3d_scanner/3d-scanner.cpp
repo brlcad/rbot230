@@ -31,6 +31,8 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 
+#include <pcl/surface/gp3.h>
+
 
 #define VDOT(a, b) ((a)[0]*(b)[0] + (a)[1]*(b)[1] + (a)[2]*(b)[2])
 
@@ -44,10 +46,10 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
             offset_x(0.0f), offset_y(0.0f),
-            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false) {}
+            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false), draw6(false), draw7(false), draw8(false), draw9(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
-  bool ml, draw0, draw1, draw2, draw3, draw4, draw5;
+  bool ml, draw0, draw1, draw2, draw3, draw4, draw5, draw6, draw7, draw8, draw9;
 };
 
 
@@ -245,6 +247,56 @@ draw_points(window& app, state& app_state, const std::vector<pcl::PointXYZ>&poin
 }
 
 
+/* helper used for the primary overlay of focus points */
+static void
+draw_triangles(window& app, state& app_state, const std::vector<pcl::PolygonMesh>&tris, int size = 1) {
+
+  if (tris.size() == 0)
+    return;
+
+  // OpenGL commands that prep screen for the pointcloud
+  glPopMatrix();
+  glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+  float width = app.width(), height = app.height();
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  gluPerspective(60, width / height, 0.01, 10.0);
+
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
+
+  glTranslatef(0, 0, +0.5 + app_state.offset_y*0.05);
+  glRotated(app_state.pitch, 1, 0, 0);
+  glRotated(app_state.yaw, 0, 1, 0);
+  glTranslatef(0, 0, -0.5);
+
+  glPointSize(width / 640 * size);
+  glEnable(GL_TEXTURE_2D);
+
+  pcl_ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+
+  glBegin(GL_TRIANGLES);
+  glColor3f(0.0, 0.0, 0.0);
+  for (int i = 0; i < tris.size(); i++) {
+    fromPCLPointCloud2(tris[i].cloud, *cloud);
+    for (const auto& p : *cloud) {
+      glVertex3f(p.x, p.y, p.z);
+    }
+  }
+  glEnd();
+
+  // OpenGL cleanup
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glPopAttrib();
+  glPushMatrix();
+}
+
+
 // Registers the state variable and callbacks to allow mouse control of the pointcloud
 static void
 register_glfw_callbacks(window& app, state& app_state) {
@@ -287,6 +339,14 @@ register_glfw_callbacks(window& app, state& app_state) {
       app_state.draw4 = !app_state.draw4;
     } else if (key == '5') {
       app_state.draw5 = !app_state.draw5;
+    } else if (key == '6') {
+      app_state.draw1 = !app_state.draw6;
+    } else if (key == '7') {
+      app_state.draw2 = !app_state.draw7;
+    } else if (key == '8') {
+      app_state.draw3 = !app_state.draw8;
+    } else if (key == '9') {
+      app_state.draw4 = !app_state.draw9;
     } else {
       printf("key pressed == [%d]\n", key);
     }
@@ -1063,6 +1123,36 @@ main(int argc, char * argv[]) try {
 #endif
 
 
+    /* mesh high-res points w/ Greedy Projection Triangulation */
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
+    pcl::PointCloud<pcl::Normal>::Ptr norms (new pcl::PointCloud<pcl::Normal>);
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr ptree (new pcl::search::KdTree<pcl::PointXYZ>);
+    ptree->setInputCloud(high_points);
+    n.setInputCloud(high_points);
+    n.setSearchMethod(ptree);
+    n.setKSearch(20);
+    n.compute(*norms);
+
+    pcl::PointCloud<pcl::PointNormal>::Ptr high_with_normals (new pcl::PointCloud<pcl::PointNormal>);
+    pcl::concatenateFields (*high_points, *norms, *high_with_normals);
+    pcl::search::KdTree<pcl::PointNormal>::Ptr htree(new pcl::search::KdTree<pcl::PointNormal>);
+    htree->setInputCloud(high_with_normals);
+
+    pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
+    gp3.setSearchMethod(htree);
+    gp3.setSearchRadius(20);
+    gp3.setMu(2.5);
+    gp3.setMaximumNearestNeighbors(100);
+    gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
+    gp3.setMinimumAngle(M_PI/18); // 10 degrees
+    gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
+    gp3.setNormalConsistency(false);
+    gp3.setInputCloud(high_with_normals);
+
+    pcl::PolygonMesh triangles;
+    gp3.reconstruct(triangles);
+
+
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1091,6 +1181,12 @@ main(int argc, char * argv[]) try {
       std::vector<pcl_ptr> high;
       high.push_back(high_points);
       draw_pointcloud(app, app_state, high, 1);
+    }
+
+    if (app_state.draw6) {
+      std::vector<pcl::PolygonMesh> tris;
+      tris.push_back(triangles);
+      draw_triangles(app, app_state, tris);
     }
 
     //#else
