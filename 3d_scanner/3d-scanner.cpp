@@ -680,8 +680,8 @@ main(int argc, char * argv[]) try {
             << " 0 - display all scanned points" << std::endl
             << " 1 - display detected object points" << std::endl
             << " 2 - display ground" << std::endl
-            << " 3 - " << std::endl
-            << " 4 - display segmentations" << std::endl
+            << " 3 - display segmentations" << std::endl
+            << " 4 - display segments in focus" << std::endl
             << " 5 - display high res object points" << std::endl
             << " 6 - display mesh" << std::endl
             << " 7 - display aggregated points" << std::endl
@@ -1196,16 +1196,21 @@ main(int argc, char * argv[]) try {
        * TODO: default registration seems rather horrible.  need to
        * leverage the IMU and/or features in the scan data.
        */
-      bool converged = mreg.registerCloud(high_points);
+      pcl_ptr grid_points(new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::VoxelGrid<pcl::PointXYZ> grid;
+      grid.setLeafSize(0.002, 0.002, 0.002); /* 2mm mesh grid */
+      grid.setInputCloud(high_points);
+      grid.filter(*grid_points);
+      bool converged = mreg.registerCloud(grid_points);
       std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
       if (converged) {
         pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
-        transformPointCloud(*high_points, *tmp, mreg.getAbsoluteTransform());
+        transformPointCloud(*grid_points, *tmp, mreg.getAbsoluteTransform());
         *aggregated_points += *tmp;
-        pcl::VoxelGrid<pcl::PointXYZ> grid;
-        grid.setLeafSize(0.002, 0.002, 0.002); /* 2mm mesh grid */
-        grid.setInputCloud(aggregated_points);
-        grid.filter(*aggregated_points);
+        pcl::VoxelGrid<pcl::PointXYZ> grid2;
+        grid2.setLeafSize(0.002, 0.002, 0.002); /* 2mm mesh grid */
+        grid2.setInputCloud(aggregated_points);
+        grid2.filter(*aggregated_points);
       }
     }
 
