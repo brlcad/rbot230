@@ -43,10 +43,10 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
             offset_x(0.0f), offset_y(0.0f),
-            ml(false), draw0(false), draw1(false), draw2(false), draw3(false) {}
+            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
-  bool ml, draw0, draw1, draw2, draw3;
+  bool ml, draw0, draw1, draw2, draw3, draw4;
 };
 
 
@@ -281,6 +281,8 @@ register_glfw_callbacks(window& app, state& app_state) {
       app_state.draw2 = !app_state.draw2;
     } else if (key == '3') {
       app_state.draw3 = !app_state.draw3;
+    } else if (key == '4') {
+      app_state.draw4 = !app_state.draw4;
     } else {
       printf("key pressed == [%d]\n", key);
     }
@@ -820,7 +822,8 @@ main(int argc, char * argv[]) try {
     if (clusters.size() > 0)
       std::cout << "         and cluster[0] size is " << clusters[0].indices.size() << std::endl;
 
-    /* find which cluster has our focus points */
+    /* find which clusters have our focus points */
+    pcl_ptr segmented_points(new pcl::PointCloud<pcl::PointXYZ>);
     for (int i = 0; i < clusters.size(); i++) {
       /* scan for focus points */
       bool found_focus = false;
@@ -842,19 +845,21 @@ main(int argc, char * argv[]) try {
           break;
         }
       }
-      if (!found_focus) {
-        std::cout << "did not find cluster " << i << std::endl;
-        pcl::ExtractIndices<pcl::PointXYZ> extract;
-        pcl::IndicesPtr indices(new pcl::Indices());
-        for (int j = 0; j < clusters[i].indices.size(); j++) {
-          indices->push_back(clusters[i].indices[j]);
-        }
-        extract.setInputCloud(object_points);
-        extract.setIndices(indices);
-        extract.setNegative(true);
-        extract.filter(*object_points);
-      } else {
+      if (found_focus) {
         std::cout << "FOUND cluster " << i << std::endl;
+        //pcl::ExtractIndices<pcl::PointXYZ> extract;
+        //pcl::IndicesPtr indices(new pcl::Indices());
+        for (int j = 0; j < clusters[i].indices.size(); j++) {
+          segmented_points->push_back((*object_points)[clusters[i].indices[j]]);
+        }
+        /*
+          extract.setInputCloud(object_points);
+          extract.setIndices(indices);
+          extract.setNegative(true);
+          extract.filter(*object_points);
+        */
+      } else {
+        std::cout << "did not find cluster " << i << std::endl;
       }
     }
 
@@ -942,6 +947,9 @@ main(int argc, char * argv[]) try {
       draw_plane(app, app_state, ground_points);
       layers.push_back(ground_points);
     }
+    if (app_state.draw4) {
+      layers.push_back(segmented_points);
+    }
     draw_pointcloud(app, app_state, layers);
 
     //#else
@@ -950,6 +958,7 @@ main(int argc, char * argv[]) try {
     if (app_state.draw3)
       layers2.push_back(region_points);
     draw_pointcloud(app, app_state, layers2);
+
 
     draw_grid(app, app_state, grid);
 #else
