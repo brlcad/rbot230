@@ -278,7 +278,7 @@ draw_triangles(window& app, state& app_state, const std::vector<pcl::PolygonMesh
 
   pcl_ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-  glBegin(GL_TRIANGLES);
+  glBegin(GL_TRIANGLE_STRIP);
   glColor3f(0.0, 0.0, 0.0);
   for (int i = 0; i < tris.size(); i++) {
     fromPCLPointCloud2(tris[i].cloud, *cloud);
@@ -340,13 +340,13 @@ register_glfw_callbacks(window& app, state& app_state) {
     } else if (key == '5') {
       app_state.draw5 = !app_state.draw5;
     } else if (key == '6') {
-      app_state.draw1 = !app_state.draw6;
+      app_state.draw6 = !app_state.draw6;
     } else if (key == '7') {
-      app_state.draw2 = !app_state.draw7;
+      app_state.draw7 = !app_state.draw7;
     } else if (key == '8') {
-      app_state.draw3 = !app_state.draw8;
+      app_state.draw8 = !app_state.draw8;
     } else if (key == '9') {
-      app_state.draw4 = !app_state.draw9;
+      app_state.draw9 = !app_state.draw9;
     } else {
       printf("key pressed == [%d]\n", key);
     }
