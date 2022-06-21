@@ -1,3 +1,5 @@
+/* Christopher Sean Morrison */
+/* RBOT 230 */
 
 #include <librealsense2/rs.hpp>
 #include "./example.hpp"
@@ -32,6 +34,10 @@
 #include <pcl/filters/extract_indices.h>
 
 #include <pcl/surface/gp3.h>
+#include <pcl/registration/icp.h>
+#include <pcl/registration/icp_nl.h>
+#include <pcl/registration/transforms.h>
+#include <pcl/registration/meta_registration.h>
 
 
 #define VDOT(a, b) ((a)[0]*(b)[0] + (a)[1]*(b)[1] + (a)[2]*(b)[2])
@@ -701,6 +707,16 @@ main(int argc, char * argv[]) try {
   rs_points = pc.calculate(depth);
 
 
+  /* get set up to aggregate points as frames stream in */
+  pcl_ptr aggregated_points(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>::Ptr icp(new pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>);
+  icp->setMaxCorrespondenceDistance(0.1);
+  icp->setMaximumIterations(50);
+
+  pcl::registration::MetaRegistration<pcl::PointXYZ> mreg;
+  mreg.setRegistration(icp);
+
+
   // auto itx = pipeProfile.get_stream(RS2_STREAM_DEPTH).as<rs2::video_stream_profile>().get_intrinsics();
 
   size_t iteration = 0;
@@ -822,7 +838,8 @@ main(int argc, char * argv[]) try {
 
 
     /* compute a ground plane that is principally horizontal with
-     * respect to the XZ plane (+Y-up).
+     * respect to the XZ plane (+Y-up).  we intentionally do this
+     * prior to other reductions in order to utilize more points.
      */
     pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
@@ -856,10 +873,28 @@ main(int argc, char * argv[]) try {
 
     std::cout << "points above ground: " << object_points->size() << std::endl;
 
+    if (object_points->size() == 0)
+      continue;
 
-    /* identify center "focus" points using a 3x3 gaussian
-     * neighborhood.  these constitute points that are "near" the
-     * center of the field of view, creating lobes of interest.
+
+#if 0
+    /* attempted RANSAC to extract ground plane, INEFFECITVE */
+    std::vector<int> inliers;
+    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar(new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
+    pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
+    ransac.setDistanceThreshold(1);
+    ransac.computeModel();
+    ransac.getInliers(inliers);
+    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::copyPointCloud(*object_points, inliers, *ground_points);
+#endif
+
+
+    /* in order to identify and extract some notion of a scanning
+     * foregrond, we define central "focus points" using a 3x3
+     * gaussian sampling neighborhood.  they're a grid of points
+     * "near" the field of view center, creating point cloud lobes of
+     * interest for subsequent prioritization.
      *
      *    50--100--50
      *    |    |    |
@@ -905,6 +940,9 @@ main(int argc, char * argv[]) try {
 
     std::cout << "points in focus (w/ dupes): " << object_points->size() << std::endl;
 
+    if (object_points->size() == 0)
+      continue;
+
 
     /* TODO: instead of simply de-duping, we could extract and
      * prioritize foreground points near multiple sample points.
@@ -915,8 +953,43 @@ main(int argc, char * argv[]) try {
 
 
 #if 0
-    /* remove exterior edge points */
-    /* NFG, looses too much of the foreground */
+    /* Attempted MinCut to extract foreground, INEFFECTIVE */
+    /* super-slow at default res, but interactive w/ voxel grid */
+
+    pcl::IndicesPtr indices(new std::vector <int>);
+    pcl::removeNaNFromPointCloud(*object_points, *indices);
+
+    pcl::MinCutSegmentation<pcl::PointXYZ> mcseg;
+    mcseg.setInputCloud(object_points);
+    mcseg.setIndices(indices);
+
+    pcl_ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>);
+    foreground_points->points.push_back(center);
+    mcseg.setForegroundPoints(foreground_points);
+
+    mcseg.setSigma(.025); /* 200mm connected component size */
+    mcseg.setRadius(.01); /* not bigger than half the scan volume +-125mm */
+    mcseg.setNumberOfNeighbours(1); /* half the 3x3 */
+    mcseg.setSourceWeight(.01);
+
+    std::vector <pcl::PointIndices> clusters;
+    mcseg.extract(clusters);
+
+    std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
+
+    pcl_rgbptr region_points = mcseg.getColoredCloud();
+
+    static int added = 0;
+    if (added++)
+      pclapp.updatePointCloud(region_points);
+    else
+      pclapp.addPointCloud<pcl::PointXYZRGB>(region_points);
+#endif
+
+
+#if 0
+    /* remove exterior edge points, INEFFECTIVE */
+    /* looses too much of the foreground. */
     pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
     outrem.setInputCloud(object_points);
     outrem.setRadiusSearch(0.1);
@@ -936,6 +1009,9 @@ main(int argc, char * argv[]) try {
     filter.filter(*object_points);
 
     std::cout << "size connected: " << object_points->size() << std::endl;
+
+    if (object_points->size() == 0)
+      continue;
 
 
 #if 0
@@ -1043,6 +1119,8 @@ main(int argc, char * argv[]) try {
       auto pnts = kdtree_points_near_point(kdtree, all_points, *it, 0.005);
       *high_points += *pnts;
     }
+    if (high_points->size() == 0)
+      continue;
     deduplicate(high_points);
 
 
@@ -1058,6 +1136,8 @@ main(int argc, char * argv[]) try {
         ++it;
       }
     }
+    if (high_points->size() == 0)
+      continue;
 
 
 #if 0
@@ -1073,52 +1153,18 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-#if 0
-    /* Attempted MinCut to extract foreground, INEFFECTIVE */
-    /* super-slow at default res, but interactive w/ voxel grid */
+    /* AGGREGATION
+     *
+     * using IterativeClosestPoint to accumulate points
+     */
+    bool converged = mreg.registerCloud(object_points);
+    std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
+    if (converged) {
+      pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
+      transformPointCloud(*object_points, *tmp, mreg.getAbsoluteTransform());
+      *aggregated_points += *tmp;
+    }
 
-    pcl::IndicesPtr indices(new std::vector <int>);
-    pcl::removeNaNFromPointCloud(*object_points, *indices);
-
-    pcl::MinCutSegmentation<pcl::PointXYZ> mcseg;
-    mcseg.setInputCloud(object_points);
-    mcseg.setIndices(indices);
-
-    pcl_ptr foreground_points(new pcl::PointCloud<pcl::PointXYZ>);
-    foreground_points->points.push_back(center);
-    mcseg.setForegroundPoints(foreground_points);
-
-    mcseg.setSigma(.025); /* 200mm connected component size */
-    mcseg.setRadius(.01); /* not bigger than half the scan volume +-125mm */
-    mcseg.setNumberOfNeighbours(1); /* half the 3x3 */
-    mcseg.setSourceWeight(.01);
-
-    std::vector <pcl::PointIndices> clusters;
-    mcseg.extract(clusters);
-
-    std::cout << "Maximum flow is " << mcseg.getMaxFlow() << std::endl;
-
-    pcl_rgbptr region_points = mcseg.getColoredCloud();
-
-    static int added = 0;
-    if (added++)
-      pclapp.updatePointCloud(region_points);
-    else
-      pclapp.addPointCloud<pcl::PointXYZRGB>(region_points);
-#endif
-
-
-#if 0
-    /* attempted RANSAC to extract ground plane, INEFFECITVE */
-    std::vector<int> inliers;
-    pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr planar(new pcl::SampleConsensusModelPlane<pcl::PointXYZ> (object_points));
-    pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(planar);
-    ransac.setDistanceThreshold(1);
-    ransac.computeModel();
-    ransac.getInliers(inliers);
-    pcl_ptr ground_points(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::copyPointCloud(*object_points, inliers, *ground_points);
-#endif
 
     /* MESHING
      *
@@ -1152,7 +1198,7 @@ main(int argc, char * argv[]) try {
     gp3.setInputCloud(high_with_normals);
 
     pcl::PolygonMesh triangles;
-    gp3.reconstruct(triangles);
+    // gp3.reconstruct(triangles); // NOTE: sometimes crashes
 
 
     glEnable(GL_POINT_SMOOTH);
@@ -1175,6 +1221,9 @@ main(int argc, char * argv[]) try {
     }
     if (app_state.draw4) {
       layers.push_back(segmented_points);
+    }
+    if (app_state.draw7) {
+      layers.push_back(aggregated_points);
     }
     draw_pointcloud(app, app_state, layers);
 
