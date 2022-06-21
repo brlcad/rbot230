@@ -1157,12 +1157,13 @@ main(int argc, char * argv[]) try {
      *
      * using IterativeClosestPoint to accumulate points
      */
-    bool converged = mreg.registerCloud(object_points);
+    bool converged = mreg.registerCloud(segmented_points);
     std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
     if (converged) {
       pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
-      transformPointCloud(*object_points, *tmp, mreg.getAbsoluteTransform());
+      transformPointCloud(*segmented_points, *tmp, mreg.getAbsoluteTransform());
       *aggregated_points += *tmp;
+      deduplicate(aggregated_points);
     }
 
 
@@ -1175,30 +1176,30 @@ main(int argc, char * argv[]) try {
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
     pcl::PointCloud<pcl::Normal>::Ptr norms (new pcl::PointCloud<pcl::Normal>);
     pcl::search::KdTree<pcl::PointXYZ>::Ptr ptree (new pcl::search::KdTree<pcl::PointXYZ>);
-    ptree->setInputCloud(high_points);
-    n.setInputCloud(high_points);
+    ptree->setInputCloud(aggregated_points);
+    n.setInputCloud(aggregated_points);
     n.setSearchMethod(ptree);
     n.setKSearch(20);
     n.compute(*norms);
 
-    pcl::PointCloud<pcl::PointNormal>::Ptr high_with_normals (new pcl::PointCloud<pcl::PointNormal>);
-    pcl::concatenateFields (*high_points, *norms, *high_with_normals);
+    pcl::PointCloud<pcl::PointNormal>::Ptr agg_with_normals(new pcl::PointCloud<pcl::PointNormal>);
+    pcl::concatenateFields (*aggregated_points, *norms, *agg_with_normals);
     pcl::search::KdTree<pcl::PointNormal>::Ptr htree(new pcl::search::KdTree<pcl::PointNormal>);
-    htree->setInputCloud(high_with_normals);
+    htree->setInputCloud(agg_with_normals);
 
     pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
     gp3.setSearchMethod(htree);
-    gp3.setSearchRadius(.02);
-    gp3.setMu(2.5);
-    gp3.setMaximumNearestNeighbors(100);
+    gp3.setSearchRadius(.05);
+    gp3.setMu(.025);
+    gp3.setMaximumNearestNeighbors(10000);
     gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
     gp3.setMinimumAngle(M_PI/18); // 10 degrees
     gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
     gp3.setNormalConsistency(false);
-    gp3.setInputCloud(high_with_normals);
+    gp3.setInputCloud(agg_with_normals);
 
     pcl::PolygonMesh triangles;
-    // gp3.reconstruct(triangles); // NOTE: sometimes crashes
+    gp3.reconstruct(triangles); // NOTE: sometimes crashes
 
 
     glEnable(GL_POINT_SMOOTH);
