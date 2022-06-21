@@ -649,27 +649,29 @@ find_focused_points(pcl_ptr& points, std::vector<pcl::PointIndices>& clusters, s
 }
 
 
-#define USING_GLFW
-//#define USING_PCLVIS
+/* TODO: need different display setup.  unfortunately glfw and
+ * pcl::visualizer do not play nicely together :(
+ *
+ * uncomment this to test meshing result
+ */
+#define PCLVIS
 
 
 int
 main(int argc, char * argv[]) try {
 
-#ifdef USING_GLFW
-  // use glfw windowing
+#ifdef PCLVIS
+  // use pcl visualizer for extraction
+  pcl::visualization::PCLVisualizer pclapp("Extraction");
+  pclapp.setBackgroundColor(0.5, 0.5, 0.5);
+  pclapp.initCameraParameters();
+  pclapp.setWindowName("Extraction");
+#endif
+
+  // use glfw windowing for diagnostic
   window app(1280, 720, "3D Scanner");
   state app_state;
   register_glfw_callbacks(app, app_state);
-#endif
-
-#ifdef USING_PCLVIS
-  pcl::visualization::PCLVisualizer app("Segmentation");
-  app.setBackgroundColor(1, 1, 1);
-  app.initCameraParameters();
-  app.setWindowName("Segmentation");
-  //pcl::visualization::CloudViewer app("Segmentation");
-#endif
 
   // Declare pointcloud object, for calculating pointclouds and texture mappings
   rs2::pointcloud pc;
@@ -703,15 +705,13 @@ main(int argc, char * argv[]) try {
 
   size_t iteration = 0;
 
-  while (
-#ifdef USING_GLFW
-         app
-#else
-#  ifdef USING_PCLVIS
-         !app.wasStopped()
-#  else
-         1
-#  endif
+
+  /* TODO: main loop would be better async and in parallel.
+   * recalculating points lock-stepped with display updates.
+   */
+  while (app
+#ifdef PCLVIS
+         && !pclapp.wasStopped()
 #endif
          ) {
 
@@ -1100,13 +1100,11 @@ main(int argc, char * argv[]) try {
 
     pcl_rgbptr region_points = mcseg.getColoredCloud();
 
-#  ifdef USING_PCLVIS
     static int added = 0;
     if (added++)
-      app.updatePointCloud(region_points);
+      pclapp.updatePointCloud(region_points);
     else
-      app.addPointCloud<pcl::PointXYZRGB>(region_points);
-#  endif
+      pclapp.addPointCloud<pcl::PointXYZRGB>(region_points);
 #endif
 
 
@@ -1140,7 +1138,7 @@ main(int argc, char * argv[]) try {
 
     pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
     gp3.setSearchMethod(htree);
-    gp3.setSearchRadius(20);
+    gp3.setSearchRadius(.02);
     gp3.setMu(2.5);
     gp3.setMaximumNearestNeighbors(100);
     gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
@@ -1162,7 +1160,6 @@ main(int argc, char * argv[]) try {
     glPointSize(3.0f);
 
 
-#ifdef USING_GLFW
     std::vector<pcl_ptr> layers;
     if (app_state.draw0)
       layers.push_back(all_points);
@@ -1189,8 +1186,6 @@ main(int argc, char * argv[]) try {
       draw_triangles(app, app_state, tris);
     }
 
-    //#else
-
     std::vector<pcl_rgbptr> layers2;
     if (app_state.draw3) {
       layers2.push_back(normal_region_points);
@@ -1200,15 +1195,18 @@ main(int argc, char * argv[]) try {
 
 
     draw_points(app, app_state, focus_points);
-#else
-#  ifdef USING_PCLVIS
-    //app.addPointCloud(region_points);//, pt_handler, "region_points");
+
+#ifdef PCLVIS
+    static int added = 0;
+    if (!added) {
+      pclapp.addPolygonMesh(triangles);
+      added++;
+    }
+    pclapp.updatePolygonMesh(triangles);
+
     //pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> pt_handler(region_points, 0, 0, 0);
-    app.spinOnce();
-#  endif
-
+    //    pclapp.spinOnce();
 #endif
-
   }
 
   return EXIT_SUCCESS;
