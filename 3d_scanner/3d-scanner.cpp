@@ -67,7 +67,7 @@ static float3 colors[] { { 0.8f, 0.1f, 0.3f },
 
 // Handles all the OpenGL calls needed to display the point cloud
 static void
-draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points) {
+draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& points, int size = 3) {
 
   if (points.size() == 0)
     return;
@@ -91,7 +91,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& point
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 3);
+  glPointSize(width / 640 * size);
   glEnable(GL_TEXTURE_2D);
 
   int color = 0;
@@ -128,7 +128,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_ptr>& point
 
 
 static void
-draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& points) {
+draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& points, int size = 2) {
 
   if (points.size() == 0)
     return;
@@ -152,7 +152,7 @@ draw_pointcloud(window& app, state& app_state, const std::vector<pcl_rgbptr>& po
   glRotated(app_state.yaw, 0, 1, 0);
   glTranslatef(0, 0, -0.5);
 
-  glPointSize(width / 640 * 2);
+  glPointSize(width / 640 * size);
   glEnable(GL_TEXTURE_2D);
 
   int color = 2;
@@ -878,6 +878,20 @@ main(int argc, char * argv[]) try {
     deduplicate(high_points);
 
 
+    /* TODO: extract to a function */
+    /* filter out anything at or below the ground plane */
+    for (pcl::PointCloud<pcl::PointXYZ>::iterator it = high_points->begin(); it != high_points->end();) {
+      static int subset = 0;
+
+      double d = pcl::pointToPlaneDistanceSigned(*it, plane);
+      if (d < 0.005) { /* trim 5mm above the plane */
+        it = high_points->erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+
 #if 0
     /* filter out the clustered background/noise points */
     for (int i = 0; i < clusters.size(); i++) {
@@ -964,10 +978,13 @@ main(int argc, char * argv[]) try {
     if (app_state.draw4) {
       layers.push_back(segmented_points);
     }
-    if (app_state.draw5) {
-      layers.push_back(high_points);
-    }
     draw_pointcloud(app, app_state, layers);
+
+    if (app_state.draw5) {
+      std::vector<pcl_ptr> high;
+      high.push_back(high_points);
+      draw_pointcloud(app, app_state, high, 1);
+    }
 
     //#else
 
