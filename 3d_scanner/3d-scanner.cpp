@@ -52,10 +52,11 @@ using pcl_rgbptr = pcl::PointCloud<pcl::PointXYZRGB>::Ptr;
 struct state {
   state() : yaw(0.0), pitch(0.0), last_x(0.0), last_y(0.0),
             offset_x(0.0f), offset_y(0.0f),
-            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false), draw6(false), draw7(false), draw8(false), draw9(false) {}
+            ml(false), draw0(false), draw1(true), draw2(false), draw3(false), draw4(false), draw5(false), draw6(false), draw7(false), draw8(false), draw9(false), reset(false) {}
   double yaw, pitch, last_x, last_y;
   float offset_x, offset_y;
   bool ml, draw0, draw1, draw2, draw3, draw4, draw5, draw6, draw7, draw8, draw9;
+  bool reset;
 };
 
 
@@ -333,6 +334,7 @@ register_glfw_callbacks(window& app, state& app_state) {
       glfwSetWindowShouldClose(app, GLFW_TRUE);
     } else if (key == 'R' /* reset */) {
       app_state.yaw = app_state.pitch = 0; app_state.offset_x = app_state.offset_y = 0.0;
+      app_state.reset = true;
     } else if (key == '0') {
       app_state.draw0 = !app_state.draw0;
     } else if (key == '1') {
@@ -746,6 +748,11 @@ main(int argc, char * argv[]) try {
 
     std::cout << std::endl << "=== frame " << std::setfill('0') << std::setw(4) << iteration++ << " =========" << std::endl;
 
+    if (app_state.reset) {
+      std::cout << "RESET REQUESTED" << std::endl;
+      aggregated_points = object_points;
+      app_state.reset = false;
+    }
 
     /*
      * We calculate a sampling grid that is a 3x3 pattern centered in
@@ -1153,54 +1160,59 @@ main(int argc, char * argv[]) try {
 #endif
 
 
-    /* AGGREGATION
-     *
-     * using IterativeClosestPoint to accumulate points
-     */
-    bool converged = mreg.registerCloud(segmented_points);
-    std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
-    if (converged) {
-      pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
-      transformPointCloud(*segmented_points, *tmp, mreg.getAbsoluteTransform());
-      *aggregated_points += *tmp;
-      deduplicate(aggregated_points);
-    }
-
-
-    /* MESHING
-     *
-     * mesh high-res points w/ Greedy Projection Triangulation.  this
-     * requires a decent amount of point coverage and does not
-     * guarantee a solid mesh, but it is relative fast.
-     */
-    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
-    pcl::PointCloud<pcl::Normal>::Ptr norms (new pcl::PointCloud<pcl::Normal>);
-    pcl::search::KdTree<pcl::PointXYZ>::Ptr ptree (new pcl::search::KdTree<pcl::PointXYZ>);
-    ptree->setInputCloud(aggregated_points);
-    n.setInputCloud(aggregated_points);
-    n.setSearchMethod(ptree);
-    n.setKSearch(20);
-    n.compute(*norms);
-
-    pcl::PointCloud<pcl::PointNormal>::Ptr agg_with_normals(new pcl::PointCloud<pcl::PointNormal>);
-    pcl::concatenateFields (*aggregated_points, *norms, *agg_with_normals);
-    pcl::search::KdTree<pcl::PointNormal>::Ptr htree(new pcl::search::KdTree<pcl::PointNormal>);
-    htree->setInputCloud(agg_with_normals);
-
-    pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
-    gp3.setSearchMethod(htree);
-    gp3.setSearchRadius(.05);
-    gp3.setMu(.025);
-    gp3.setMaximumNearestNeighbors(10000);
-    gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
-    gp3.setMinimumAngle(M_PI/18); // 10 degrees
-    gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
-    gp3.setNormalConsistency(false);
-    gp3.setInputCloud(agg_with_normals);
-
     pcl::PolygonMesh triangles;
-    gp3.reconstruct(triangles); // NOTE: sometimes crashes
+    if (app_state.draw9) {
 
+      /* AGGREGATION
+       *
+       * using IterativeClosestPoint to accumulate points.
+       *
+       * TODO: default registration seems rather horrible.  need to
+       * leverage the IMU and/or features in the scan data.
+       */
+      bool converged = mreg.registerCloud(segmented_points);
+      std::cout << "registration " << ((converged)?"converged":"did not converge") << std::endl;
+      if (converged) {
+        pcl_ptr tmp(new pcl::PointCloud<pcl::PointXYZ>);
+        transformPointCloud(*segmented_points, *tmp, mreg.getAbsoluteTransform());
+        *aggregated_points += *tmp;
+        deduplicate(aggregated_points);
+      }
+
+
+      /* MESHING
+       *
+       * mesh high-res points w/ Greedy Projection Triangulation.  this
+       * requires a decent amount of point coverage and does not
+       * guarantee a solid mesh, but it is relative fast.
+       */
+      pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
+      pcl::PointCloud<pcl::Normal>::Ptr norms (new pcl::PointCloud<pcl::Normal>);
+      pcl::search::KdTree<pcl::PointXYZ>::Ptr ptree (new pcl::search::KdTree<pcl::PointXYZ>);
+      ptree->setInputCloud(aggregated_points);
+      n.setInputCloud(aggregated_points);
+      n.setSearchMethod(ptree);
+      n.setKSearch(20);
+      n.compute(*norms);
+
+      pcl::PointCloud<pcl::PointNormal>::Ptr agg_with_normals(new pcl::PointCloud<pcl::PointNormal>);
+      pcl::concatenateFields (*aggregated_points, *norms, *agg_with_normals);
+      pcl::search::KdTree<pcl::PointNormal>::Ptr htree(new pcl::search::KdTree<pcl::PointNormal>);
+      htree->setInputCloud(agg_with_normals);
+
+      pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
+      gp3.setSearchMethod(htree);
+      gp3.setSearchRadius(.05);
+      gp3.setMu(.025);
+      gp3.setMaximumNearestNeighbors(10000);
+      gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
+      gp3.setMinimumAngle(M_PI/18); // 10 degrees
+      gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
+      gp3.setNormalConsistency(false);
+      gp3.setInputCloud(agg_with_normals);
+      gp3.reconstruct(triangles); // NOTE: sometimes crashes
+
+    }
 
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_BLEND);
